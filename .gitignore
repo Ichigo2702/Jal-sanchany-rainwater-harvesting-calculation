@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.tsbuildinfo
+vite-dev*.log
+.gradle/
+build/
+android/.gradle/
+android/app/build/
