@@ -5,16 +5,34 @@ import com.jalsanchay.tracker.model.MonthlyData
 import com.jalsanchay.tracker.model.UserSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.IOException
+import java.net.SocketTimeoutException
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 
 class AiTipService {
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder()
+        .callTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .build()
     private val mediaType = "application/json".toMediaType()
+
+    companion object {
+        private val cache = mutableMapOf<String, Pair<String, Long>>()
+        private const val CACHE_TTL_MS = 24 * 60 * 60 * 1000L
+        private const val TIMEOUT_MS = 15_000L
+
+        fun invalidateEntryRelatedCache() {
+            cache.remove("tips")
+            cache.remove("seasonAnalysis")
+        }
+    }
 
     fun offlinePlaceholder(settings: UserSettings): String {
         return "AI service pending backend/API setup. Based on your ${settings.roofArea.toInt()} ${settings.unit} roof and ${settings.tankCapacity.toInt()} L tank, clean filters before rain and inspect the first-flush diverter."
@@ -34,7 +52,7 @@ class AiTipService {
             Return: 1) Two-sentence summary. 2) Three bullet observations.
             3) One milestone projection. Concise and specific.
         """.trimIndent()
-        return postPrompt(prompt)
+        return postPrompt("seasonAnalysis", prompt)
     }
 
     suspend fun getTips(
@@ -53,7 +71,7 @@ class AiTipService {
             Best day: ${"%.1f".format(bestDay)}L. Streak: $streak days.
             Number 1-4. Max 2 sentences each. Specific numbers. No generics.
         """.trimIndent()
-        return postPrompt(prompt)
+        return postPrompt("tips", prompt)
     }
 
     suspend fun askGlossary(question: String, setup: UserSettings): String {
@@ -61,11 +79,21 @@ class AiTipService {
             Answer in plain English, 3-4 sentences. User has ${setup.roofArea.toInt()} ${setup.unit}
             ${runoffLabel(setup.runoffCoeff)} roof, ${setup.tankCapacity.toInt()}L tank in India. Question: $question
         """.trimIndent()
-        return postPrompt(prompt)
+        return postPrompt("glossary_${question.take(30)}", prompt)
     }
 
-    private suspend fun postPrompt(prompt: String): String = withContext(Dispatchers.IO) {
+    private fun getCached(key: String): String? {
+        val cached = cache[key] ?: return null
+        return if (System.currentTimeMillis() - cached.second < CACHE_TTL_MS) cached.first else null
+    }
+
+    private fun setCached(key: String, value: String) {
+        cache[key] = value to System.currentTimeMillis()
+    }
+
+    private suspend fun postPrompt(cacheKey: String, prompt: String): String = withContext(Dispatchers.IO) {
         try {
+            getCached(cacheKey)?.let { return@withContext it }
             if (BuildConfig.ANTHROPIC_API_KEY.isBlank()) return@withContext "Unable to generate response."
             val body = JSONObject()
                 .put("model", "claude-sonnet-4-20250514")
@@ -81,10 +109,16 @@ class AiTipService {
                 .post(body)
                 .build()
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext "Unable to generate response."
+                if (!response.isSuccessful) return@withContext "Service unavailable. Please try again."
                 val json = JSONObject(response.body?.string().orEmpty())
-                json.getJSONArray("content").optJSONObject(0)?.optString("text") ?: "Unable to generate response."
+                val text = json.getJSONArray("content").optJSONObject(0)?.optString("text") ?: "Unable to generate response."
+                setCached(cacheKey, text)
+                text
             }
+        } catch (_: SocketTimeoutException) {
+            "Request timed out. Please try again."
+        } catch (_: IOException) {
+            "Unable to connect. Check your connection."
         } catch (_: Exception) {
             "Unable to generate response."
         }

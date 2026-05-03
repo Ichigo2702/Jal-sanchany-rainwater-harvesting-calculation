@@ -1,42 +1,97 @@
 package com.jalsanchay.tracker.data
 
-import com.jalsanchay.tracker.model.RainfallEntry
-import com.jalsanchay.tracker.model.UserSettings
+import com.jalsanchay.tracker.util.Calculations
+import com.jalsanchay.tracker.ai.AiTipService
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 
-class TrackerRepository(
-    private val rainfallDao: RainfallDao,
-    private val settingsDao: SettingsDao
-) {
-    val entries: Flow<List<RainfallEntry>> = rainfallDao.observeEntries().map { rows -> rows.map { it.toModel() } }
-    val settings: Flow<UserSettings> = settingsDao.observeSettings().map { it?.toModel() ?: UserSettings() }
+class TrackerRepository(private val db: JalSanchayDatabase) {
+    val WEATHER_CACHE_TTL_MS = 3 * 60 * 60 * 1000L
 
-    suspend fun saveSettings(settings: UserSettings) {
-        settingsDao.save(settings.toEntity())
+    val setup: Flow<UserSetup?> = db.userSetupDao().getSetup()
+
+    suspend fun saveSetup(setup: UserSetup) =
+        db.userSetupDao().saveSetup(setup)
+
+    val allEntries: Flow<List<RainfallEntry>> =
+        db.rainfallDao().getAllEntries()
+
+    val totalLitres: Flow<Double> =
+        db.rainfallDao().getTotalLitres()
+
+    val entryCount: Flow<Int> =
+        db.rainfallDao().getEntryCount()
+
+    fun getTodayEntries(today: String): Flow<List<RainfallEntry>> =
+        db.rainfallDao().getTodayEntries(today)
+
+    fun getEntriesByMonth(monthPrefix: String): Flow<List<RainfallEntry>> =
+        db.rainfallDao().getEntriesByMonth(monthPrefix)
+
+    suspend fun insertEntry(entry: RainfallEntry) {
+        db.rainfallDao().insertEntry(entry)
+        AiTipService.invalidateEntryRelatedCache()
     }
 
-    suspend fun saveEntry(entry: RainfallEntry) {
-        if (entry.id == 0L) rainfallDao.insert(entry.toEntity()) else rainfallDao.update(entry.toEntity())
+    suspend fun updateEntry(entry: RainfallEntry) {
+        db.rainfallDao().updateEntry(entry)
+        AiTipService.invalidateEntryRelatedCache()
     }
 
     suspend fun deleteEntry(entry: RainfallEntry) {
-        rainfallDao.delete(entry.toEntity())
+        db.rainfallDao().deleteEntry(entry)
+        AiTipService.invalidateEntryRelatedCache()
     }
+
+    suspend fun insertAll(entries: List<RainfallEntry>) =
+        db.rainfallDao().insertAll(entries)
 
     suspend fun replaceEntries(entries: List<RainfallEntry>) {
-        rainfallDao.clear()
-        entries.forEach { rainfallDao.insert(it.copy(id = 0).toEntity()) }
+        db.rainfallDao().clearEntries()
+        insertAll(entries)
+        AiTipService.invalidateEntryRelatedCache()
     }
 
-    suspend fun seedIfEmpty(entries: List<RainfallEntry>) {
-        if (rainfallDao.count() == 0) {
-            rainfallDao.insertAll(entries.map { it.copy(id = 0).toEntity() })
+    suspend fun getAllEntriesList(): List<RainfallEntry> =
+        db.rainfallDao().getAllEntriesList()
+
+    suspend fun getEntryByDate(date: String): RainfallEntry? =
+        db.rainfallDao().getEntryByDate(date)
+
+    suspend fun getWeatherCache(): WeatherCache? {
+        val cache = db.weatherDao().getWeatherCache() ?: return null
+        val age = System.currentTimeMillis() - cache.fetchedAt
+        return if (age < WEATHER_CACHE_TTL_MS) cache else null
+    }
+
+    suspend fun saveWeatherCache(locationName: String, forecastJson: String) {
+        db.weatherDao().saveWeatherCache(
+            WeatherCache(
+                locationName = locationName,
+                forecastJson = forecastJson,
+                fetchedAt = System.currentTimeMillis()
+            )
+        )
+    }
+
+    suspend fun recalculateAllEntries(setup: UserSetup) {
+        val entries = getAllEntriesList()
+        entries.forEach { entry ->
+            val newLitres = Calculations.calculateWaterCollected(
+                roofArea = setup.roofArea,
+                unit = setup.unit,
+                rainfallMm = entry.rainfallMm,
+                runoffCoeff = setup.runoffCoefficient,
+                tankCapacity = setup.tankCapacity
+            )
+            updateEntry(entry.copy(litresCollected = newLitres))
         }
     }
 
-    suspend fun reset() {
-        rainfallDao.clear()
-        settingsDao.save(UserSettings().toEntity())
+    suspend fun seedIfEmpty(entries: List<RainfallEntry>, setup: UserSetup) {
+        val count = db.rainfallDao().getAllEntriesList().size
+        if (count == 0) {
+            saveSetup(setup)
+            insertAll(entries)
+        }
     }
 }

@@ -1,32 +1,15 @@
 package com.jalsanchay.tracker.model
 
-data class RainfallEntry(
-    val id: Long = 0,
-    val date: String,
-    val rainfallMm: Double,
-    val litresCollected: Double,
-    val createdAt: Long = System.currentTimeMillis()
-)
+import com.jalsanchay.tracker.data.RainfallEntry as DbRainfallEntry
+import com.jalsanchay.tracker.data.UserSetup
+import com.jalsanchay.tracker.util.Calculations
+import com.jalsanchay.tracker.util.ForecastData
+import com.jalsanchay.tracker.util.RainDay
 
-data class UserSettings(
-    val setupDone: Boolean = false,
-    val roofArea: Double = 800.0,
-    val unit: String = "sqft",
-    val tankCapacity: Double = 3000.0,
-    val runoffCoeff: Double = 0.85,
-    val darkMode: Boolean = false,
-    val amoledMode: Boolean = false,
-    val rainfallReminderEnabled: Boolean = false
-)
-
-data class MonthlyReport(
-    val monthKey: String,
-    val totalRainfallMm: Double,
-    val totalWaterSaved: Double,
-    val impactDays: Double
-)
-
-typealias MonthlyData = MonthlyReport
+typealias UserSettings = UserSetup
+typealias RainfallEntry = DbRainfallEntry
+typealias MonthlyData = Calculations.MonthlyTotal
+typealias MonthlyReport = Calculations.MonthlyTotal
 
 data class ForecastDay(
     val date: String,
@@ -40,11 +23,41 @@ sealed class UiState<out T> {
     data class Error(val message: String) : UiState<Nothing>()
 }
 
+sealed class AsyncState<out T> {
+    data object Idle : AsyncState<Nothing>()
+    data object Loading : AsyncState<Nothing>()
+    data class Success<T>(val data: T) : AsyncState<T>()
+    data class Error(val message: String) : AsyncState<Nothing>()
+}
+
 data class TrackerUiState(
-    val settings: UserSettings = UserSettings(),
+    val settings: UserSetup = UserSetup(),
+    val setupComplete: Boolean = false,
     val entries: List<RainfallEntry> = emptyList(),
-    val monthlyReports: List<MonthlyReport> = emptyList(),
-    val isLoading: Boolean = true,
+    val todaySaved: Double = 0.0,
+    val monthSaved: Double = 0.0,
+    val allTimeSaved: Double = 0.0,
+    val impactScore: Double = 0.0,
+    val tankPercentage: Float = 0f,
+    val streakDays: Int = 0,
+    val bestDayLitres: Double = 0.0,
+    val avgMonthlyLitres: Double = 0.0,
+    val dryDaysCount: Int = 0,
+    val currentMonthProgress: Float = 0f,
+    val lastLoggedDate: String? = null,
+    val litresToFill: Double = 0.0,
+    val monthlyTotals: List<Calculations.MonthlyTotal> = emptyList(),
+    val monthlyReports: List<Calculations.MonthlyTotal> = emptyList(),
+    val bestMonth: Pair<String, Double>? = null,
+    val forecast: ForecastData? = null,
+    val weatherCacheAge: Long? = null,
+    val nextRainDay: RainDay? = null,
+    val currentMilestone: Double? = null,
+    val isOnline: Boolean = true,
+    val aiTipsState: AsyncState<String> = AsyncState.Idle,
+    val aiInsightState: AsyncState<String> = AsyncState.Idle,
+    val weatherLoadState: AsyncState<Unit> = AsyncState.Idle,
+    val isLoading: Boolean = false,
     val milestoneMessage: String? = null,
     val aiTip: String? = null
 )

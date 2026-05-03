@@ -57,7 +57,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -72,6 +74,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.navArgument
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.content.Intent
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
@@ -81,12 +86,17 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Umbrella
 import androidx.compose.material.icons.filled.Whatshot
+import androidx.compose.material.icons.filled.WifiOff
 import com.jalsanchay.tracker.model.MonthlyReport
 import com.jalsanchay.tracker.model.RainfallEntry
 import com.jalsanchay.tracker.model.TrackerUiState
 import com.jalsanchay.tracker.model.UiState
 import com.jalsanchay.tracker.model.UserSettings
 import com.jalsanchay.tracker.util.calculateImpactDays
+import com.jalsanchay.tracker.util.isValid
+import com.jalsanchay.tracker.util.message
+import com.jalsanchay.tracker.util.validateDate
+import com.jalsanchay.tracker.util.validateRainfallMm
 import com.jalsanchay.tracker.viewmodel.TrackerViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -114,7 +124,8 @@ private object Routes {
 @Composable
 fun JalSanchayApp(
     viewModel: TrackerViewModel,
-    navController: NavHostController
+    navController: NavHostController,
+    deepLinkScreen: String? = null
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snack = remember { SnackbarHostState() }
@@ -129,6 +140,15 @@ fun JalSanchayApp(
         uiState.milestoneMessage?.let { snack.showSnackbar(it) }
     }
 
+    LaunchedEffect(deepLinkScreen) {
+        if (deepLinkScreen == "entry") {
+            navController.navigate(Routes.Dashboard) { launchSingleTop = true }
+            navController.navigate(Routes.entry())
+        } else if (deepLinkScreen == "dashboard") {
+            navController.navigate(Routes.Dashboard) { launchSingleTop = true }
+        }
+    }
+
     MaterialTheme {
         Surface(Modifier.fillMaxSize(), color = palette.bg) {
             Scaffold(
@@ -141,11 +161,21 @@ fun JalSanchayApp(
                     }
                 }
             ) { padding ->
-                NavHost(
-                    navController = navController,
-                    startDestination = Routes.Splash,
-                    modifier = Modifier.padding(padding)
-                ) {
+                Column(Modifier.padding(padding)) {
+                    if (!uiState.isOnline) {
+                        Surface(color = MaterialTheme.colorScheme.tertiaryContainer) {
+                            Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.WifiOff, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Offline — weather and AI unavailable", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                    NavHost(
+                        navController = navController,
+                        startDestination = Routes.Splash,
+                        modifier = Modifier.weight(1f)
+                    ) {
                     composable(Routes.Splash) {
                         SplashScreen(palette)
                         LaunchedEffect(uiState.isLoading, uiState.settings.setupDone) {
@@ -178,8 +208,8 @@ fun JalSanchayApp(
                             entries = uiState.entries,
                             settings = uiState.settings,
                             palette = palette,
-                            onDetail = { navController.navigate(Routes.detail(it.id)) },
-                            onEdit = { navController.navigate(Routes.entry(it.id)) },
+                            onDetail = { navController.navigate(Routes.detail(it.id.toLong())) },
+                            onEdit = { navController.navigate(Routes.entry(it.id.toLong())) },
                             onDelete = viewModel::deleteEntry
                         )
                     }
@@ -190,6 +220,7 @@ fun JalSanchayApp(
                         SettingsScreen(
                             uiState = uiState,
                             palette = palette,
+                            viewModel = viewModel,
                             onComingSoon = { scope.launch { snack.showSnackbar("Coming in v1.1") } },
                             onSave = {
                                 viewModel.saveSettings(it)
@@ -208,7 +239,7 @@ fun JalSanchayApp(
                         arguments = listOf(navArgument("entryId") { type = NavType.LongType; defaultValue = 0L })
                     ) { backStack ->
                         val id = backStack.arguments?.getLong("entryId") ?: 0L
-                        val entry = uiState.entries.firstOrNull { it.id == id }
+                        val entry = uiState.entries.firstOrNull { it.id.toLong() == id }
                         RainfallEntryScreen(
                             settings = uiState.settings,
                             entry = entry,
@@ -226,12 +257,12 @@ fun JalSanchayApp(
                         arguments = listOf(navArgument("entryId") { type = NavType.LongType })
                     ) { backStack ->
                         val id = backStack.arguments?.getLong("entryId") ?: 0L
-                        uiState.entries.firstOrNull { it.id == id }?.let { entry ->
+                        uiState.entries.firstOrNull { it.id.toLong() == id }?.let { entry ->
                             RainfallDetailsScreen(
                                 entry = entry,
                                 palette = palette,
                                 onBack = { navController.popBackStack() },
-                                onEdit = { navController.navigate(Routes.entry(entry.id)) },
+                                onEdit = { navController.navigate(Routes.entry(entry.id.toLong())) },
                                 onDelete = {
                                     viewModel.deleteEntry(entry)
                                     navController.popBackStack()
@@ -239,6 +270,7 @@ fun JalSanchayApp(
                             )
                         }
                     }
+                }
                 }
             }
         }
@@ -396,6 +428,7 @@ private fun DashboardScreen(uiState: TrackerUiState, palette: AppPalette, viewMo
     val milestone by viewModel.currentMilestone.collectAsStateWithLifecycle()
     val locationName by viewModel.locationName.collectAsStateWithLifecycle()
     val forecastDays by viewModel.forecastDays.collectAsStateWithLifecycle()
+    val weatherCacheAge by viewModel.weatherCacheAge.collectAsStateWithLifecycle()
     var forecastExpanded by remember { mutableStateOf(false) }
     var locationDraft by remember { mutableStateOf(locationName) }
     val entries = uiState.entries
@@ -502,12 +535,16 @@ private fun DashboardScreen(uiState: TrackerUiState, palette: AppPalette, viewMo
                 AnimatedVisibility(forecastExpanded) {
                     AppCard(palette) {
                         OutlinedTextField(locationDraft, { locationDraft = it }, label = { Text("Location") }, modifier = Modifier.fillMaxWidth())
-                        Button({ viewModel.setLocationName(locationDraft) }) { Text("Save Location") }
+                        Button({ viewModel.setLocationName(locationDraft) }, enabled = uiState.isOnline) { Text("Save Location") }
                     }
                 }
             } else {
                 AppCard(palette) {
                     Text("7-day forecast for $locationName", color = palette.text, fontWeight = FontWeight.Bold)
+                    weatherCacheAge?.let {
+                        val hoursAgo = ((System.currentTimeMillis() - it) / (60 * 60 * 1000)).coerceAtLeast(0)
+                        Text("Updated ${hoursAgo}h ago", style = MaterialTheme.typography.labelSmall, color = palette.muted)
+                    }
                     forecastDays.forEach { day ->
                         Text("${day.date}: ${day.precipitationSum.toInt()}mm", color = palette.muted)
                     }
@@ -548,25 +585,30 @@ private fun SummaryCard(label: String, value: String, palette: AppPalette, modif
 private fun RainfallEntryScreen(settings: UserSettings, entry: RainfallEntry?, palette: AppPalette, today: String, onBack: () -> Unit, onSave: (Long, String, Double) -> Unit) {
     var date by remember { mutableStateOf(entry?.date ?: today) }
     var rain by remember { mutableStateOf(entry?.rainfallMm?.toString() ?: "") }
+    var dateTouched by remember { mutableStateOf(false) }
+    var rainTouched by remember { mutableStateOf(false) }
     val value = rain.toDoubleOrNull()
-    val error = rain.isBlank() || value == null || value < 0.0
+    val dateValidation = validateDate(date)
+    val rainValidation = validateRainfallMm(rain)
+    val error = !dateValidation.isValid || !rainValidation.isValid
 
     Column(Modifier.fillMaxSize()) {
         ScreenHeader(if (entry == null) "Log Rainfall" else "Edit Entry", palette, onBack = onBack)
         Column(Modifier.weight(1f).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             AppCard(palette) {
-                OutlinedTextField(date, { date = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Date") })
+                OutlinedTextField(date, { date = it }, modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.hasFocus) dateTouched = true }, label = { Text("Date") })
+                if (dateTouched && !dateValidation.isValid) Text(dateValidation.message.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 Text("Backdated entry allowed up to 7 days.", color = palette.muted)
             }
             AppCard(palette) {
-                OutlinedTextField(rain, { rain = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Rainfall in mm") })
-                if (error) Text("Enter a non-negative rainfall value.", color = palette.danger)
+                OutlinedTextField(rain, { rain = it }, modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.hasFocus) rainTouched = true }, label = { Text("Rainfall in mm") })
+                if (rainTouched && !rainValidation.isValid) Text(rainValidation.message.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 Text("Calculation caps collection at ${settings.tankCapacity.toInt()} L tank capacity.", color = palette.muted)
             }
         }
         Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(onBack, Modifier.weight(1f)) { Text("Cancel") }
-            Button({ if (!error) onSave(entry?.id ?: 0L, date, value!!) }, Modifier.weight(1f), enabled = !error) { Text("Save") }
+            Button({ if (!error) onSave(entry?.id?.toLong() ?: 0L, date, value!!) }, Modifier.weight(1f), enabled = !error) { Text("Save") }
         }
     }
 }
@@ -641,7 +683,7 @@ private fun ReportsScreen(uiState: TrackerUiState, palette: AppPalette, viewMode
             }
             AppCard(palette) {
                 Text("AI Season Analysis", color = palette.text, fontWeight = FontWeight.Bold)
-                Button(onClick = viewModel::fetchSeasonAnalysis) { Text("Get AI Insight") }
+                Button(onClick = viewModel::fetchSeasonAnalysis, enabled = uiState.isOnline) { Text("Get AI Insight") }
                 when (val state = aiSeasonInsight) {
                     UiState.Idle -> Unit
                     UiState.Loading -> CircularProgressIndicator()
@@ -807,7 +849,7 @@ private fun TipsScreen(uiState: TrackerUiState, palette: AppPalette, viewModel: 
             }
             AppCard(palette) {
                 Text("AI Personalised Tips", color = palette.text, fontWeight = FontWeight.Bold)
-                Button(onClick = viewModel::fetchTips) { Text("Get AI Tips") }
+                Button(onClick = viewModel::fetchTips, enabled = uiState.isOnline) { Text("Get AI Tips") }
                 when (val state = aiTips) {
                     UiState.Idle -> Unit
                     UiState.Loading -> CircularProgressIndicator()
@@ -819,7 +861,7 @@ private fun TipsScreen(uiState: TrackerUiState, palette: AppPalette, viewModel: 
                 Text("Glossary", color = palette.text, fontWeight = FontWeight.Bold)
                 Text("Runoff Coefficient, Catchment Area, First Flush, Water Harvesting Potential, CPHEEO Standard", color = palette.muted)
                 OutlinedTextField(question, { question = it }, label = { Text("Ask anything about rainwater harvesting") }, modifier = Modifier.fillMaxWidth())
-                Button({ if (question.isNotBlank()) { viewModel.askGlossary(question); question = "" } }) { Text("Ask") }
+                Button({ if (question.isNotBlank()) { viewModel.askGlossary(question); question = "" } }, enabled = uiState.isOnline) { Text("Ask") }
                 qaHistory.forEach { pair ->
                     Text("Q: ${pair.first}", color = palette.primary, fontWeight = FontWeight.Bold)
                     Text(pair.second, color = palette.text)
@@ -832,12 +874,16 @@ private fun TipsScreen(uiState: TrackerUiState, palette: AppPalette, viewModel: 
 private enum class SaveState { IDLE, SAVED }
 
 @Composable
-private fun SettingsScreen(uiState: TrackerUiState, palette: AppPalette, onComingSoon: () -> Unit, onSave: (UserSettings) -> Unit, onReset: () -> Unit) {
+private fun SettingsScreen(uiState: TrackerUiState, palette: AppPalette, viewModel: TrackerViewModel, onComingSoon: () -> Unit, onSave: (UserSettings) -> Unit, onReset: () -> Unit) {
+    val context = LocalContext.current
     val settings = uiState.settings
     var draft by remember(settings) { mutableStateOf(settings) }
     var confirmReset by remember { mutableStateOf(false) }
     var saveState by remember { mutableStateOf(SaveState.IDLE) }
     var pendingSave by remember { mutableStateOf(false) }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { viewModel.importData(context, it) }
+    }
     LaunchedEffect(saveState) {
         if (saveState == SaveState.SAVED) {
             delay(1500)
@@ -883,6 +929,22 @@ private fun SettingsScreen(uiState: TrackerUiState, palette: AppPalette, onComin
                     trailingContent = { Switch(checked = false, onCheckedChange = null, enabled = false) },
                     modifier = Modifier.clickable { onComingSoon() }
                 )
+            }
+            AppCard(palette) {
+                Text("Data", color = palette.text, fontWeight = FontWeight.Bold)
+                OutlinedButton({
+                    viewModel.exportData(context)?.let { uri ->
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "application/json"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, "Export Jal-Sanchay backup"))
+                    }
+                }, Modifier.fillMaxWidth()) { Text("Export Data") }
+                OutlinedButton({
+                    importLauncher.launch(arrayOf("application/json", "text/*"))
+                }, Modifier.fillMaxWidth()) { Text("Import Data") }
             }
             AppCard(palette) {
                 Text("About", color = palette.text, fontWeight = FontWeight.Bold)

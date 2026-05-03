@@ -1,306 +1,462 @@
 package com.jalsanchay.tracker.viewmodel
 
+import android.app.Application
 import android.content.Context
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
+import android.net.Uri
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import com.jalsanchay.tracker.ai.AiTipService
+import com.jalsanchay.tracker.data.JalSanchayDatabase
+import com.jalsanchay.tracker.data.RainfallEntry
+import com.jalsanchay.tracker.data.SeedData
 import com.jalsanchay.tracker.data.TrackerRepository
-import com.jalsanchay.tracker.model.RainfallEntry
+import com.jalsanchay.tracker.data.UserSetup
+import com.jalsanchay.tracker.model.AsyncState
 import com.jalsanchay.tracker.model.TrackerUiState
 import com.jalsanchay.tracker.model.UiState
-import com.jalsanchay.tracker.model.UserSettings
-import com.jalsanchay.tracker.notifications.ReminderScheduler
+import com.jalsanchay.tracker.util.Calculations
+import com.jalsanchay.tracker.util.ImportResult
+import com.jalsanchay.tracker.util.NetworkMonitor
 import com.jalsanchay.tracker.util.PdfExporter
-import com.jalsanchay.tracker.util.buildMonthlyReports
-import com.jalsanchay.tracker.util.calculateWaterCollected
-import com.jalsanchay.tracker.util.recalculateEntries
+import com.jalsanchay.tracker.util.WeatherResult
+import com.jalsanchay.tracker.util.exportToJson
+import com.jalsanchay.tracker.util.fetchWeatherForLocation
+import com.jalsanchay.tracker.util.importFromJson
+import com.jalsanchay.tracker.widget.JalSanchayWidget
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import org.json.JSONObject
 import java.io.File
-import java.time.LocalDate
-import java.time.YearMonth
 
-class TrackerViewModel(
-    private val repository: TrackerRepository,
-    context: Context
-) : ViewModel() {
-    private val pdfExporter = PdfExporter(context)
-    private val reminderScheduler = ReminderScheduler(context)
+class TrackerViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val db = JalSanchayDatabase.getInstance(application)
+    private val repo = TrackerRepository(db)
+    private val networkMonitor = NetworkMonitor(application)
+    private val httpClient = OkHttpClient.Builder()
+        .callTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
+    private val pdfExporter = PdfExporter(application)
     private val aiTipService = AiTipService()
-    private var previousTotal = 0.0
-    private val dismissedMilestones = MutableStateFlow<Set<Double>>(emptySet())
-
     val messages = MutableSharedFlow<String>()
+
+    private val _setup = repo.setup
+    private val _entries = repo.allEntries
+    private val _totalLitres = repo.totalLitres
+
     val locationName = MutableStateFlow("")
+    val forecastDays = MutableStateFlow(emptyList<com.jalsanchay.tracker.model.ForecastDay>())
     val aiSeasonInsight = MutableStateFlow<UiState<String>>(UiState.Idle)
     val aiTips = MutableStateFlow<UiState<String>>(UiState.Idle)
     val glossaryAnswer = MutableSharedFlow<Pair<String, String>>()
 
-    val uiState = combine(repository.settings, repository.entries) { settings, entries ->
-        val total = entries.sumOf { it.litresCollected }
-        val milestone = milestoneMessage(previousTotal, total)
-        previousTotal = total
-        TrackerUiState(
-            settings = settings,
-            entries = entries,
-            monthlyReports = buildMonthlyReports(entries),
-            isLoading = false,
-            milestoneMessage = milestone
-        )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TrackerUiState())
-
-    val streakDays: StateFlow<Int> = repository.entries.map { entries ->
-        countStreak(entries.map { it.date }.toSet())
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
-
-    val bestDayLitres: StateFlow<Double> = repository.entries.map { entries ->
-        entries.maxOfOrNull { it.litresCollected } ?: 0.0
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0.0)
-
-    val avgMonthlyLitres: StateFlow<Double> = repository.entries.map { entries ->
-        val months = entries.map { it.date.take(7) }.distinct().size
-        if (months == 0) 0.0 else entries.sumOf { it.litresCollected } / months
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0.0)
-
-    val dryDaysCount: StateFlow<Int> = repository.entries.map { entries ->
-        entries.count { it.rainfallMm == 0.0 }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
-
-    val currentMonthProgress: StateFlow<Float> = repository.entries.map { entries ->
-        val months = entries.map { it.date.take(7) }.distinct().size
-        if (months < 2) 0f else {
-            val currentMonth = YearMonth.now().toString()
-            val total = entries.sumOf { it.litresCollected }
-            val average = total / months
-            val current = entries.filter { it.date.startsWith(currentMonth) }.sumOf { it.litresCollected }
-            if (average <= 0.0) 0f else (current / average).toFloat().coerceIn(0f, 1f)
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0f)
-
-    val distinctMonthCount: StateFlow<Int> = repository.entries.map { entries ->
-        entries.map { it.date.take(7) }.distinct().size
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
-
-    val bestMonth: StateFlow<Pair<String, Double>?> = repository.entries.map { entries ->
-        buildMonthlyReports(entries).maxByOrNull { it.totalWaterSaved }?.let { it.monthKey to it.totalWaterSaved }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    val previousMonthLitres: StateFlow<Double> = repository.entries.map { entries ->
-        buildMonthlyReports(entries).sortedBy { it.monthKey }.dropLast(1).lastOrNull()?.totalWaterSaved ?: 0.0
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0.0)
-
-    val currentMilestone: StateFlow<Double?> = combine(repository.entries, dismissedMilestones) { entries, dismissed ->
-        val total = entries.sumOf { it.litresCollected }
-        listOf(500.0, 1000.0, 5000.0, 10000.0).filter { total >= it && it !in dismissed }.maxOrNull()
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    val forecastDays: StateFlow<List<com.jalsanchay.tracker.model.ForecastDay>> = locationName.map { location ->
-        if (location.isBlank()) emptyList() else listOf(
-            com.jalsanchay.tracker.model.ForecastDay(LocalDate.now().toString(), 0.0),
-            com.jalsanchay.tracker.model.ForecastDay(LocalDate.now().plusDays(1).toString(), 8.0),
-            com.jalsanchay.tracker.model.ForecastDay(LocalDate.now().plusDays(2).toString(), 2.0),
-            com.jalsanchay.tracker.model.ForecastDay(LocalDate.now().plusDays(3).toString(), 12.0),
-            com.jalsanchay.tracker.model.ForecastDay(LocalDate.now().plusDays(4).toString(), 0.0),
-            com.jalsanchay.tracker.model.ForecastDay(LocalDate.now().plusDays(5).toString(), 6.0),
-            com.jalsanchay.tracker.model.ForecastDay(LocalDate.now().plusDays(6).toString(), 4.0)
-        )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
     init {
         viewModelScope.launch {
-            repository.seedIfEmpty(seedEntries)
+            _setup.collect { saved ->
+                val loc = saved?.locationName.orEmpty()
+                if (loc.isNotBlank() && locationName.value.isBlank()) {
+                    locationName.value = loc
+                    fetchWeather()
+                }
+            }
         }
     }
 
-    fun completeSetup(settings: UserSettings) {
-        viewModelScope.launch {
-            repository.saveSettings(settings.copy(setupDone = true))
-            messages.emit("Changes saved successfully")
-        }
+    val setup: StateFlow<UserSetup?> = _setup
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val allEntries: StateFlow<List<RainfallEntry>> = _entries
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val totalLitres: StateFlow<Double> = _totalLitres
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val entryCount: StateFlow<Int> = repo.entryCount
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val todaySaved: StateFlow<Double> = _entries.map { entries ->
+        val today = java.time.LocalDate.now().toString()
+        entries.filter { it.date == today }.sumOf { it.litresCollected }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val impactScore: StateFlow<Double> = _totalLitres.map {
+        Calculations.calculateImpactScore(it)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val streakDays: StateFlow<Int> = _entries.map {
+        Calculations.calculateStreak(it)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val bestDayLitres: StateFlow<Double> = _entries.map {
+        Calculations.getBestDayLitres(it)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val avgMonthlyLitres: StateFlow<Double> = _entries.map {
+        Calculations.getAvgMonthlyLitres(it)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val dryDaysCount: StateFlow<Int> = _entries.map {
+        Calculations.getDryDaysCount(it)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val monthlyTotals: StateFlow<List<Calculations.MonthlyTotal>> =
+        _entries.map {
+            Calculations.getMonthlyTotals(it)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val distinctMonthCount: StateFlow<Int> = _entries.map { entries ->
+        entries.map { it.date.take(7) }.distinct().size
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val bestMonth: StateFlow<Pair<String, Double>?> =
+        monthlyTotals.map { totals ->
+            totals.maxByOrNull { it.totalLitres }?.let { it.monthKey to it.totalLitres }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val previousMonthLitres: StateFlow<Double> = monthlyTotals.map { totals ->
+        totals.sortedBy { it.monthKey }.dropLast(1).lastOrNull()?.totalLitres ?: 0.0
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val currentMonthProgress: StateFlow<Float> = _entries.map { entries ->
+        val currentMonthKey = java.time.LocalDate.now().toString().substring(0, 7)
+        Calculations.getCurrentMonthProgress(entries, currentMonthKey)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
+
+    val lastLoggedDate: StateFlow<String?> = _entries.map { entries ->
+        entries.maxByOrNull { it.date }?.date
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val litresToFill: StateFlow<Double> = combine(todaySaved, _setup) { today, setup ->
+        val cap = setup?.tankCapacity ?: 3000.0
+        maxOf(cap - today, 0.0)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 3000.0)
+
+    val isOnline: StateFlow<Boolean> = networkMonitor.isOnline
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    private val _weatherCacheAge = MutableStateFlow<Long?>(null)
+    val weatherCacheAge: StateFlow<Long?> = _weatherCacheAge.asStateFlow()
+
+    private val _weatherForecastJson = MutableStateFlow<String?>(null)
+    val weatherForecastJson: StateFlow<String?> = _weatherForecastJson.asStateFlow()
+
+    private val dismissedMilestones = MutableStateFlow<Set<Double>>(emptySet())
+
+    val currentMilestone: StateFlow<Double?> = combine(_totalLitres, dismissedMilestones) { total, dismissed ->
+        val thresholds = listOf(500.0, 1000.0, 5000.0, 10000.0)
+        thresholds
+            .filter { total >= it && it !in dismissed }
+            .maxOrNull()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val uiState: StateFlow<TrackerUiState> = combine(
+        _setup,
+        _entries,
+        todaySaved,
+        _totalLitres,
+        impactScore,
+        streakDays,
+        bestDayLitres,
+        avgMonthlyLitres,
+        dryDaysCount,
+        currentMonthProgress,
+        lastLoggedDate,
+        litresToFill,
+        monthlyTotals,
+        bestMonth,
+        currentMilestone,
+        isOnline
+    ) { values ->
+        val setup = values[0] as? UserSetup ?: UserSetup()
+        val entries = values[1] as List<RainfallEntry>
+        val today = values[2] as Double
+        val total = values[3] as Double
+        val impact = values[4] as Double
+        val monthly = values[12] as List<Calculations.MonthlyTotal>
+        TrackerUiState(
+            settings = setup,
+            setupComplete = setup.setupDone,
+            entries = entries,
+            todaySaved = today,
+            monthSaved = entries.filter { it.date.startsWith(java.time.LocalDate.now().toString().substring(0, 7)) }.sumOf { it.litresCollected },
+            allTimeSaved = total,
+            impactScore = impact,
+            tankPercentage = Calculations.calculateTankPercentage(today, setup.tankCapacity),
+            streakDays = values[5] as Int,
+            bestDayLitres = values[6] as Double,
+            avgMonthlyLitres = values[7] as Double,
+            dryDaysCount = values[8] as Int,
+            currentMonthProgress = values[9] as Float,
+            lastLoggedDate = values[10] as String?,
+            litresToFill = values[11] as Double,
+            monthlyTotals = monthly,
+            monthlyReports = monthly,
+            bestMonth = values[13] as Pair<String, Double>?,
+            currentMilestone = values[14] as Double?,
+            isOnline = values[15] as Boolean,
+            isLoading = false
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TrackerUiState())
+
+    fun dismissMilestone(threshold: Double) {
+        dismissedMilestones.value = dismissedMilestones.value + threshold
     }
 
-    fun saveSettings(settings: UserSettings) {
+    fun dismissMilestone() {
+        currentMilestone.value?.let { dismissMilestone(it) }
+    }
+
+    fun saveEntry(date: String, rainfallMm: Double) {
         viewModelScope.launch {
-            val recalculated = recalculateEntries(
-                uiState.value.entries,
-                settings.roofArea,
-                settings.unit,
-                settings.runoffCoeff,
-                settings.tankCapacity
+            val s = setup.value ?: return@launch
+            val litres = Calculations.calculateWaterCollected(
+                roofArea = s.roofArea,
+                unit = s.unit,
+                rainfallMm = rainfallMm,
+                runoffCoeff = s.runoffCoefficient,
+                tankCapacity = s.tankCapacity
             )
-            repository.saveSettings(settings)
-            repository.replaceEntries(recalculated)
-            if (settings.rainfallReminderEnabled) reminderScheduler.scheduleDaily() else reminderScheduler.cancel()
-            messages.emit("Settings updated. Data recalculated.")
-        }
-    }
-
-    fun saveRainfallEntry(id: Long, date: String, rainfallMm: Double) {
-        viewModelScope.launch {
-            val settings = uiState.value.settings
-            val litres = calculateWaterCollected(settings.roofArea, settings.unit, rainfallMm, settings.runoffCoeff, settings.tankCapacity)
-            repository.saveEntry(
+            repo.insertEntry(
                 RainfallEntry(
-                    id = id,
                     date = date,
                     rainfallMm = rainfallMm,
-                    litresCollected = litres,
-                    createdAt = System.currentTimeMillis()
+                    litresCollected = litres
                 )
             )
-            messages.emit("Entry saved")
+            refreshWidgets()
+        }
+    }
+
+    fun updateEntry(entry: RainfallEntry, newMm: Double, newDate: String) {
+        viewModelScope.launch {
+            val s = setup.value ?: return@launch
+            val newLitres = Calculations.calculateWaterCollected(
+                roofArea = s.roofArea,
+                unit = s.unit,
+                rainfallMm = newMm,
+                runoffCoeff = s.runoffCoefficient,
+                tankCapacity = s.tankCapacity
+            )
+            repo.updateEntry(
+                entry.copy(
+                    date = newDate,
+                    rainfallMm = newMm,
+                    litresCollected = newLitres
+                )
+            )
+            refreshWidgets()
         }
     }
 
     fun deleteEntry(entry: RainfallEntry) {
         viewModelScope.launch {
-            repository.deleteEntry(entry)
-            messages.emit("Entry deleted")
+            repo.deleteEntry(entry)
+            refreshWidgets()
         }
     }
 
-    fun resetApp() {
+    fun saveSetup(setup: UserSetup) {
         viewModelScope.launch {
-            reminderScheduler.cancel()
-            repository.reset()
-            messages.emit("App reset")
+            val normalized = setup.copy(runoffCoefficient = setup.runoffCoeff)
+            repo.saveSetup(normalized)
+            repo.recalculateAllEntries(normalized)
+        }
+    }
+
+    fun saveSettings(setup: UserSetup) = saveSetup(setup)
+
+    fun completeSetup(setup: UserSetup) = saveSetup(setup.copy(setupDone = true))
+
+    fun saveRainfallEntry(id: Long, date: String, rainfallMm: Double) {
+        if (id == 0L) saveEntry(date, rainfallMm) else {
+            val current = allEntries.value.firstOrNull { it.id.toLong() == id } ?: return
+            updateEntry(current, rainfallMm, date)
         }
     }
 
     fun exportPdf(onExported: (File) -> Unit) {
         viewModelScope.launch {
-            val file = pdfExporter.exportMonthlyReport(uiState.value.monthlyReports)
-            onExported(file)
-            messages.emit("PDF exported")
+            onExported(pdfExporter.exportMonthlyReport(monthlyTotals.value))
         }
     }
 
-    fun getAiTip() {
-        viewModelScope.launch {
-            messages.emit(aiTipService.offlinePlaceholder(uiState.value.settings))
-        }
-    }
-
-    fun dismissMilestone() {
-        currentMilestone.value?.let { milestone ->
-            dismissedMilestones.update { it + milestone }
-        }
-    }
+    fun today(): String = java.time.LocalDate.now().toString()
 
     fun setLocationName(value: String) {
         locationName.value = value
+        viewModelScope.launch {
+            val current = setup.value ?: UserSetup()
+            repo.saveSetup(current.copy(locationName = value))
+            fetchWeather()
+        }
     }
 
     fun fetchSeasonAnalysis() {
         viewModelScope.launch {
+            if (!isOnline.value) {
+                showSnackbar("No connection")
+                return@launch
+            }
             aiSeasonInsight.value = UiState.Loading
-            val state = uiState.value
-            val total = state.entries.sumOf { it.litresCollected }
-            val response = aiTipService.getSeasonAnalysis(state.settings, state.monthlyReports, total, total / 135.0)
-            aiSeasonInsight.value = if (response == "Unable to generate response.") UiState.Error(response) else UiState.Success(response)
+            val settings = setup.value ?: UserSetup()
+            val response = aiTipService.getSeasonAnalysis(
+                setup = settings,
+                monthlyData = monthlyTotals.value,
+                allSaved = totalLitres.value,
+                impact = impactScore.value
+            )
+            aiSeasonInsight.value = UiState.Success(response)
         }
     }
 
     fun fetchTips() {
         viewModelScope.launch {
+            if (!isOnline.value) {
+                showSnackbar("No connection")
+                return@launch
+            }
             aiTips.value = UiState.Loading
-            val state = uiState.value
-            val total = state.entries.sumOf { it.litresCollected }
             val response = aiTipService.getTips(
-                setup = state.settings,
-                entryCount = state.entries.size,
-                allSaved = total,
+                setup = setup.value ?: UserSetup(),
+                entryCount = allEntries.value.size,
+                allSaved = totalLitres.value,
                 bestDay = bestDayLitres.value,
                 streak = streakDays.value,
-                locName = locationName.value.ifBlank { "Not set" },
-                season = seasonLabel(LocalDate.now().monthValue)
+                locName = locationName.value.ifBlank { setup.value?.locationName.orEmpty() },
+                season = currentSeasonLabel()
             )
-            aiTips.value = if (response == "Unable to generate response.") UiState.Error(response) else UiState.Success(response)
+            aiTips.value = UiState.Success(response)
         }
     }
 
     fun askGlossary(question: String) {
         viewModelScope.launch {
-            val answer = aiTipService.askGlossary(question, uiState.value.settings)
-            glossaryAnswer.emit(question to answer)
+            if (!isOnline.value) {
+                showSnackbar("No connection")
+                return@launch
+            }
+            glossaryAnswer.emit(question to aiTipService.askGlossary(question, setup.value ?: UserSetup()))
         }
     }
 
-    private fun milestoneMessage(oldTotal: Double, newTotal: Double): String? {
-        if (oldTotal == 0.0) return null
-        return listOf(500.0, 1000.0, 5000.0, 10000.0)
-            .firstOrNull { oldTotal < it && newTotal >= it }
-            ?.let { "Milestone reached: ${it.toInt()} L saved" }
-    }
-
-    fun today(): String = LocalDate.now().toString()
-
-    private fun countStreak(dates: Set<String>): Int {
-        var cursor = LocalDate.now()
-        var streak = 0
-        while (dates.contains(cursor.toString())) {
-            streak += 1
-            cursor = cursor.minusDays(1)
+    fun resetApp() {
+        viewModelScope.launch {
+            repo.replaceEntries(emptyList())
+            repo.saveSetup(UserSetup())
         }
-        return streak
     }
 
-    private fun seasonLabel(month: Int): String {
-        return when (month) {
+    fun seedDatabase() {
+        viewModelScope.launch {
+            repo.seedIfEmpty(
+                entries = SeedData.ENTRIES,
+                setup = SeedData.DEFAULT_SETUP
+            )
+        }
+    }
+
+    fun fetchWeather() {
+        viewModelScope.launch {
+            val loc = locationName.value.ifBlank { setup.value?.locationName.orEmpty() }
+            if (loc.isBlank()) return@launch
+            val cached = repo.getWeatherCache()
+            if (cached != null && cached.locationName.equals(loc, ignoreCase = true)) {
+                _weatherCacheAge.value = cached.fetchedAt
+                _weatherForecastJson.value = cached.forecastJson
+                forecastDays.value = parseForecastDays(cached.forecastJson)
+                return@launch
+            }
+            when (val result = fetchWeatherForLocation(loc, httpClient)) {
+                is WeatherResult.Success -> {
+                    repo.saveWeatherCache(result.resolvedName, result.forecastJson)
+                    _weatherCacheAge.value = null
+                    _weatherForecastJson.value = result.forecastJson
+                    locationName.value = result.resolvedName
+                    forecastDays.value = result.forecast.days.map {
+                        com.jalsanchay.tracker.model.ForecastDay(it.date, it.precipitationSum)
+                    }
+                }
+                is WeatherResult.Error -> showSnackbar(result.message)
+            }
+        }
+    }
+
+    private fun parseForecastDays(json: String): List<com.jalsanchay.tracker.model.ForecastDay> {
+        return try {
+            val daily = JSONObject(json).getJSONObject("daily")
+            val dates = daily.getJSONArray("time")
+            val rain = daily.getJSONArray("precipitation_sum")
+            (0 until dates.length()).map {
+                com.jalsanchay.tracker.model.ForecastDay(dates.getString(it), rain.optDouble(it, 0.0))
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun exportData(context: Context): Uri? {
+        return try {
+            val settings = setup.value ?: return null
+            val uri = exportToJson(context, settings, allEntries.value)
+            showSnackbar("Backup exported")
+            uri
+        } catch (_: Exception) {
+            showSnackbar("Export failed")
+            null
+        }
+    }
+
+    fun importData(context: Context, uri: Uri) {
+        viewModelScope.launch {
+            when (val result = importFromJson(context, uri)) {
+                is ImportResult.Success -> {
+                    repo.saveSetup(result.settings)
+                    repo.replaceEntries(result.entries)
+                    repo.recalculateAllEntries(result.settings)
+                    refreshWidgets()
+                    showSnackbar("Backup imported")
+                }
+                is ImportResult.Error -> showSnackbar(result.message)
+            }
+        }
+    }
+
+    private val _snackbarMessage = MutableStateFlow<String?>(null)
+    val snackbarMessage: StateFlow<String?> = _snackbarMessage.asStateFlow()
+
+    fun showSnackbar(message: String) {
+        _snackbarMessage.value = message
+    }
+
+    fun clearSnackbar() {
+        _snackbarMessage.value = null
+    }
+
+    private suspend fun refreshWidgets() {
+        val context = getApplication<Application>()
+        GlanceAppWidgetManager(context)
+            .getGlanceIds(JalSanchayWidget::class.java)
+            .forEach { JalSanchayWidget().update(context, it) }
+    }
+
+    private fun currentSeasonLabel(): String {
+        return when (java.time.LocalDate.now().monthValue) {
             in 3..5 -> "Pre-Monsoon"
             in 6..9 -> "SW Monsoon"
             in 10..12 -> "NE Monsoon"
             else -> "Dry Season"
         }
-    }
-
-    private val seedEntries = listOf(
-        RainfallEntry(date = "2025-05-10", rainfallMm = 8.0, litresCollected = 504.7),
-        RainfallEntry(date = "2025-05-18", rainfallMm = 14.0, litresCollected = 882.5),
-        RainfallEntry(date = "2025-06-05", rainfallMm = 28.0, litresCollected = 1765.0),
-        RainfallEntry(date = "2025-06-12", rainfallMm = 35.0, litresCollected = 2206.3),
-        RainfallEntry(date = "2025-06-20", rainfallMm = 22.0, litresCollected = 1386.9),
-        RainfallEntry(date = "2025-06-28", rainfallMm = 41.0, litresCollected = 2584.7),
-        RainfallEntry(date = "2025-07-03", rainfallMm = 52.0, litresCollected = 3000.0),
-        RainfallEntry(date = "2025-07-09", rainfallMm = 38.0, litresCollected = 2395.7),
-        RainfallEntry(date = "2025-07-15", rainfallMm = 60.0, litresCollected = 3000.0),
-        RainfallEntry(date = "2025-07-22", rainfallMm = 45.0, litresCollected = 2836.8),
-        RainfallEntry(date = "2025-08-02", rainfallMm = 48.0, litresCollected = 3000.0),
-        RainfallEntry(date = "2025-08-11", rainfallMm = 55.0, litresCollected = 3000.0),
-        RainfallEntry(date = "2025-08-19", rainfallMm = 32.0, litresCollected = 2017.2),
-        RainfallEntry(date = "2025-08-27", rainfallMm = 40.0, litresCollected = 2521.6),
-        RainfallEntry(date = "2025-09-04", rainfallMm = 30.0, litresCollected = 1891.2),
-        RainfallEntry(date = "2025-09-15", rainfallMm = 18.0, litresCollected = 1134.7),
-        RainfallEntry(date = "2025-09-24", rainfallMm = 22.0, litresCollected = 1386.9),
-        RainfallEntry(date = "2025-10-08", rainfallMm = 25.0, litresCollected = 1576.0),
-        RainfallEntry(date = "2025-10-20", rainfallMm = 15.0, litresCollected = 945.6),
-        RainfallEntry(date = "2025-11-05", rainfallMm = 20.0, litresCollected = 1260.8),
-        RainfallEntry(date = "2025-11-18", rainfallMm = 12.0, litresCollected = 756.5),
-        RainfallEntry(date = "2025-12-10", rainfallMm = 6.0, litresCollected = 378.2),
-        RainfallEntry(date = "2026-01-14", rainfallMm = 4.0, litresCollected = 252.2),
-        RainfallEntry(date = "2026-02-20", rainfallMm = 10.0, litresCollected = 630.4),
-        RainfallEntry(date = "2026-03-08", rainfallMm = 16.0, litresCollected = 1008.6),
-        RainfallEntry(date = "2026-04-12", rainfallMm = 18.0, litresCollected = 1134.7),
-        RainfallEntry(date = "2026-04-28", rainfallMm = 12.0, litresCollected = 756.5),
-        RainfallEntry(date = "2026-04-29", rainfallMm = 0.0, litresCollected = 0.0),
-        RainfallEntry(date = "2026-04-30", rainfallMm = 25.0, litresCollected = 1576.0)
-    )
-}
-
-class TrackerViewModelFactory(
-    private val repository: TrackerRepository,
-    private val context: Context
-) : ViewModelProvider.Factory {
-    @Suppress("UNCHECKED_CAST")
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return TrackerViewModel(repository, context.applicationContext) as T
     }
 }

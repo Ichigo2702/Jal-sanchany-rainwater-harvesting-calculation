@@ -39,7 +39,7 @@ src/
 ├── App.tsx              # Root component: manages global state via useReducer & handles routing
 ├── index.css            # Global styling, theming (dark/light/amoled), and utility classes
 ├── main.tsx             # Entry point mounting the React tree
-├── mockData.ts          # Seed data for initial testing and demonstration
+├── initialState.ts      # Empty frontend initial state; seed data lives in Android Room backend
 └── types.ts             # Global TypeScript interfaces (AppState, Entry, etc.)
 ```
 

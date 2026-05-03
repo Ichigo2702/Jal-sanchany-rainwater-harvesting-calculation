@@ -9,7 +9,7 @@ import { SettingsScreen } from "./components/SettingsScreen";
 import { SplashScreen } from "./components/SplashScreen";
 import { TipsScreen } from "./components/TipsScreen";
 import { ConfirmDialog, Toast } from "./components/UI";
-import { initialAppState } from "./mockData";
+import { initialAppState } from "./initialState";
 import { recalculateEntries } from "./services/calculations";
 import type { AppState, Entry, ForecastState, MainTab, Screen } from "./types";
 
