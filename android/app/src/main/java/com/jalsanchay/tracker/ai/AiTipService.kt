@@ -94,32 +94,67 @@ class AiTipService {
     private suspend fun postPrompt(cacheKey: String, prompt: String): String = withContext(Dispatchers.IO) {
         try {
             getCached(cacheKey)?.let { return@withContext it }
-            if (BuildConfig.ANTHROPIC_API_KEY.isBlank()) return@withContext "Unable to generate response."
-            val body = JSONObject()
-                .put("model", "claude-sonnet-4-20250514")
-                .put("max_tokens", 800)
-                .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt)))
-                .toString()
-                .toRequestBody(mediaType)
-            val request = Request.Builder()
-                .url("https://api.anthropic.com/v1/messages")
-                .addHeader("content-type", "application/json")
-                .addHeader("anthropic-version", "2023-06-01")
-                .addHeader("x-api-key", BuildConfig.ANTHROPIC_API_KEY)
-                .post(body)
-                .build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext "Service unavailable. Please try again."
-                val json = JSONObject(response.body?.string().orEmpty())
-                val text = json.getJSONArray("content").optJSONObject(0)?.optString("text") ?: "Unable to generate response."
-                setCached(cacheKey, text)
-                text
+            val result = sendPromptToGemini(prompt)
+            if (result != "Unable to generate response.") {
+                setCached(cacheKey, result)
             }
+            result
         } catch (_: SocketTimeoutException) {
             "Request timed out. Please try again."
         } catch (_: IOException) {
             "Unable to connect. Check your connection."
         } catch (_: Exception) {
+            "Unable to generate response."
+        }
+    }
+
+    suspend fun sendPromptToGemini(userInput: String): String = withContext(Dispatchers.IO) {
+        if (BuildConfig.GEMINI_API_KEY.isBlank()) {
+            android.util.Log.e("AiTipService", "GEMINI_API_KEY is missing")
+            return@withContext "Unable to generate response."
+        }
+
+        val bodyString = JSONObject()
+            .put("contents", JSONArray().put(
+                JSONObject().put("parts", JSONArray().put(
+                    JSONObject().put("text", userInput)
+                ))
+            ))
+            .toString()
+
+        val request = Request.Builder()
+            .url("https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${BuildConfig.GEMINI_API_KEY}")
+            .addHeader("Content-Type", "application/json")
+            .post(bodyString.toRequestBody(mediaType))
+            .build()
+
+        try {
+            client.newCall(request).execute().use { response ->
+                val responseBody = response.body?.string().orEmpty()
+                
+                android.util.Log.d("AiTipService", "Gemini Request: $bodyString")
+                android.util.Log.d("AiTipService", "Gemini Response Code: ${response.code}")
+                android.util.Log.d("AiTipService", "Gemini Response Body: $responseBody")
+
+                if (!response.isSuccessful) return@withContext "Service unavailable. Please try again."
+                
+                val json = JSONObject(responseBody)
+                val text = json.optJSONArray("candidates")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("content")
+                    ?.optJSONArray("parts")
+                    ?.optJSONObject(0)
+                    ?.optString("text")
+
+                if (text.isNullOrBlank()) {
+                    android.util.Log.w("AiTipService", "Gemini returned empty text")
+                    "Unable to generate response."
+                } else {
+                    text.trim()
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AiTipService", "Gemini API call failed", e)
             "Unable to generate response."
         }
     }

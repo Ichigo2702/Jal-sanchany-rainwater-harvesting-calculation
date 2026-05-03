@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,6 +38,9 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -80,10 +84,15 @@ import android.content.Intent
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Umbrella
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material.icons.filled.WifiOff
@@ -149,7 +158,31 @@ fun JalSanchayApp(
         }
     }
 
-    MaterialTheme {
+    val colorScheme = remember(palette) {
+        if (uiState.settings.darkMode) {
+            darkColorScheme(
+                primary = palette.primary,
+                background = palette.bg,
+                surface = palette.surface,
+                onPrimary = Color.White,
+                onBackground = palette.text,
+                onSurface = palette.text,
+                error = palette.danger
+            )
+        } else {
+            lightColorScheme(
+                primary = palette.primary,
+                background = palette.bg,
+                surface = palette.surface,
+                onPrimary = Color.White,
+                onBackground = palette.text,
+                onSurface = palette.text,
+                error = palette.danger
+            )
+        }
+    }
+
+    MaterialTheme(colorScheme = colorScheme) {
         Surface(Modifier.fillMaxSize(), color = palette.bg) {
             Scaffold(
                 containerColor = palette.bg,
@@ -365,7 +398,7 @@ private fun ScreenHeader(title: String, palette: AppPalette, subtitle: String? =
 }
 
 @Composable
-private fun AppCard(palette: AppPalette, modifier: Modifier = Modifier, content: @Composable Column.() -> Unit) {
+private fun AppCard(palette: AppPalette, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = palette.surface),
         shape = RoundedCornerShape(16.dp),
@@ -735,7 +768,7 @@ private fun HistoryScreen(entries: List<RainfallEntry>, settings: UserSettings, 
                     entry.rainfallMm < previous.rainfallMm -> "↓"
                     else -> "same"
                 }
-                AppCard(palette, Modifier.clickable { expandedId = if (expandedId == entry.id) null else entry.id }.semantics { contentDescription = "Rainfall ${entry.rainfallMm} mm on ${entry.date}" }) {
+                AppCard(palette, Modifier.clickable { expandedId = if (expandedId == entry.id.toLong()) null else entry.id.toLong() }.semantics { contentDescription = "Rainfall ${entry.rainfallMm} mm on ${entry.date}" }) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("${entry.rainfallMm.toInt()} mm", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = palette.text)
@@ -754,7 +787,7 @@ private fun HistoryScreen(entries: List<RainfallEntry>, settings: UserSettings, 
                         Text("Edit", color = palette.primary, modifier = Modifier.clickable { onEdit(entry) }.padding(8.dp))
                         Text("Delete", color = palette.danger, modifier = Modifier.clickable { confirmDelete = entry }.padding(8.dp))
                     }
-                    AnimatedVisibility(expandedId == entry.id) {
+                    AnimatedVisibility(expandedId == entry.id.toLong()) {
                         Text(
                             "${entry.rainfallMm}mm × ${settings.roofArea.toInt()} ${settings.unit} × 0.0929 × ${settings.runoffCoeff} (${runoffLabel(settings.runoffCoeff)}) = ${entry.litresCollected.toInt()}L" +
                                 if (entry.litresCollected == settings.tankCapacity) " · Capped at ${settings.tankCapacity.toInt()}L" else "",
@@ -1021,17 +1054,24 @@ private fun Toggle(left: String, right: String, leftSelected: Boolean, palette: 
 private fun BottomNav(route: String?, palette: AppPalette, onSelect: (String) -> Unit) {
     NavigationBar(containerColor = palette.surface) {
         listOf(
-            Routes.Dashboard to "Home",
-            Routes.Reports to "Reports",
-            Routes.History to "History",
-            Routes.Tips to "Tips",
-            Routes.Settings to "Settings"
-        ).forEach { item ->
+            Triple(Routes.Dashboard, "Home", Icons.Default.Home),
+            Triple(Routes.Reports, "Reports", Icons.Default.BarChart),
+            Triple(Routes.History, "History", Icons.Default.History),
+            Triple(Routes.Tips, "Tips", Icons.Default.Lightbulb),
+            Triple(Routes.Settings, "Settings", Icons.Default.Settings)
+        ).forEach { (path, label, icon) ->
             NavigationBarItem(
-                selected = route == item.first,
-                onClick = { onSelect(item.first) },
-                icon = { Text("[]", color = if (route == item.first) palette.primary else palette.muted) },
-                label = { Text(item.second) }
+                selected = route == path,
+                onClick = { onSelect(path) },
+                icon = { Icon(icon, contentDescription = label) },
+                label = { Text(label) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = palette.primary,
+                    selectedTextColor = palette.primary,
+                    unselectedIconColor = palette.muted,
+                    unselectedTextColor = palette.muted,
+                    indicatorColor = palette.primary.copy(alpha = 0.12f)
+                )
             )
         }
     }

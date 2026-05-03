@@ -1,7 +1,8 @@
 package com.jalsanchay.tracker.widget
 
 import android.content.Context
-import android.content.Intent
+import androidx.glance.action.ActionParameters
+import androidx.glance.action.actionParametersOf
 import androidx.compose.runtime.Composable
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
@@ -31,10 +32,11 @@ class JalSanchayWidget : GlanceAppWidget() {
 
 @Composable
 fun JalSanchayWidgetContent(context: Context) {
+    val deepLinkKey = ActionParameters.Key<String>("DEEP_LINK_SCREEN")
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
-            .background(ColorProvider(Color.White, Color(0xFF1F2937)))
+            .background(ColorProvider(Color.White))
             .padding(16.dp)
     ) {
         Text("Jal-Sanchay")
@@ -43,11 +45,8 @@ fun JalSanchayWidgetContent(context: Context) {
         Spacer(GlanceModifier.height(8.dp))
         Button(
             "Log Rainfall",
-            onClick = actionStartActivity(
-                Intent(context, MainActivity::class.java).apply {
-                    putExtra("DEEP_LINK_SCREEN", "entry")
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                }
+            onClick = actionStartActivity<MainActivity>(
+                actionParametersOf(deepLinkKey to "entry")
             )
         )
     }
