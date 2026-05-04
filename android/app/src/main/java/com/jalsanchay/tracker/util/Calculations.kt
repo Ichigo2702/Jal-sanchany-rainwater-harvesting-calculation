@@ -7,6 +7,7 @@ import java.time.format.TextStyle
 import java.util.Locale
 
 object Calculations {
+    const val RUNOFF_FACTOR = 0.0929
 
     fun calculateWaterCollected(
         roofArea: Double,
@@ -15,9 +16,17 @@ object Calculations {
         runoffCoeff: Double,
         tankCapacity: Double
     ): Double {
+        return minOf(calculateRawWaterCollected(roofArea, unit, rainfallMm, runoffCoeff), tankCapacity)
+    }
+
+    fun calculateRawWaterCollected(
+        roofArea: Double,
+        unit: String,
+        rainfallMm: Double,
+        runoffCoeff: Double
+    ): Double {
         val ft2 = if (unit == "sqm") roofArea * 10.764 else roofArea
-        val raw = ft2 * rainfallMm * 0.0929 * runoffCoeff
-        return minOf(raw, tankCapacity)
+        return ft2 * rainfallMm * RUNOFF_FACTOR * runoffCoeff
     }
 
     fun calculateImpactScore(totalLitres: Double): Double =

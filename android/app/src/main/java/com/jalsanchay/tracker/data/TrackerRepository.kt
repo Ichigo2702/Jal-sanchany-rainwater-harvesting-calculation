@@ -94,4 +94,8 @@ class TrackerRepository(private val db: JalSanchayDatabase) {
             insertAll(entries)
         }
     }
+
+    suspend fun seedIfEmpty() {
+        seedIfEmpty(SeedData.ENTRIES, SeedData.DEFAULT_SETUP)
+    }
 }

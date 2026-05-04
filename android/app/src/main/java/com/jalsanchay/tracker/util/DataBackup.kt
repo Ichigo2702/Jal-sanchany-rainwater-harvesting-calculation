@@ -37,6 +37,9 @@ fun exportToJson(
                 .put("runoffCoefficient", settings.runoffCoefficient)
                 .put("runoffLabel", settings.runoffLabel)
                 .put("locationName", settings.locationName)
+                .put("setupDone", settings.setupDone)
+                .put("darkMode", settings.darkMode)
+                .put("amoledMode", settings.amoledMode)
         )
         .put(
             "entries",
@@ -72,7 +75,10 @@ fun importFromJson(
             tankCapacity = settingsJson.getDouble("tankCapacity"),
             runoffCoefficient = settingsJson.getDouble("runoffCoefficient"),
             runoffLabel = settingsJson.optString("runoffLabel", "Concrete"),
-            locationName = settingsJson.optString("locationName", "")
+            locationName = settingsJson.optString("locationName", ""),
+            setupDone = settingsJson.optBoolean("setupDone", true),
+            darkMode = settingsJson.optBoolean("darkMode", false),
+            amoledMode = settingsJson.optBoolean("amoledMode", false)
         )
         val entriesJson = root.getJSONArray("entries")
         val entries = (0 until entriesJson.length()).map {
@@ -85,7 +91,7 @@ fun importFromJson(
             )
         }
         ImportResult.Success(settings, entries)
-    } catch (_: Exception) {
-        ImportResult.Error("Unable to import backup")
+    } catch (e: Exception) {
+        ImportResult.Error("Import error: ${e.message}")
     }
 }

@@ -8,12 +8,14 @@ import androidx.activity.viewModels
 import androidx.activity.compose.setContent
 import androidx.core.app.ActivityCompat
 import androidx.navigation.compose.rememberNavController
+import com.jalsanchay.tracker.notifications.RainPredictionWorker
 import com.jalsanchay.tracker.ui.JalSanchayApp
 import com.jalsanchay.tracker.util.WeatherSyncWorker
 import com.jalsanchay.tracker.viewmodel.TrackerViewModel
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import java.util.concurrent.TimeUnit
@@ -26,8 +28,10 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 20)
         }
+        // TODO: Remove seedDatabase() before production release.
         viewModel.seedDatabase()
         scheduleWeatherSync()
+        scheduleRainPredictionCheck()
         val deepLinkScreen = intent.getStringExtra("DEEP_LINK_SCREEN")
 
         setContent {
@@ -52,5 +56,12 @@ class MainActivity : ComponentActivity() {
             ExistingPeriodicWorkPolicy.KEEP,
             weatherSync
         )
+    }
+
+    private fun scheduleRainPredictionCheck() {
+        val checkRain = OneTimeWorkRequestBuilder<RainPredictionWorker>()
+            .setInitialDelay(2, TimeUnit.MINUTES)
+            .build()
+        WorkManager.getInstance(this).enqueue(checkRain)
     }
 }

@@ -26,7 +26,7 @@ class AiTipService {
     companion object {
         private val cache = mutableMapOf<String, Pair<String, Long>>()
         private const val CACHE_TTL_MS = 24 * 60 * 60 * 1000L
-        private const val TIMEOUT_MS = 15_000L
+        private const val TIMEOUT_MS = 30_000L
 
         fun invalidateEntryRelatedCache() {
             cache.remove("tips")
@@ -122,41 +122,69 @@ class AiTipService {
             ))
             .toString()
 
-        val request = Request.Builder()
-            .url("https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${BuildConfig.GEMINI_API_KEY}")
-            .addHeader("Content-Type", "application/json")
-            .post(bodyString.toRequestBody(mediaType))
-            .build()
+        val maxRetries = 2
+        var lastError = "Unable to generate response."
 
-        try {
-            client.newCall(request).execute().use { response ->
-                val responseBody = response.body?.string().orEmpty()
-                
-                android.util.Log.d("AiTipService", "Gemini Request: $bodyString")
-                android.util.Log.d("AiTipService", "Gemini Response Code: ${response.code}")
-                android.util.Log.d("AiTipService", "Gemini Response Body: $responseBody")
-
-                if (!response.isSuccessful) return@withContext "Service unavailable. Please try again."
-                
-                val json = JSONObject(responseBody)
-                val text = json.optJSONArray("candidates")
-                    ?.optJSONObject(0)
-                    ?.optJSONObject("content")
-                    ?.optJSONArray("parts")
-                    ?.optJSONObject(0)
-                    ?.optString("text")
-
-                if (text.isNullOrBlank()) {
-                    android.util.Log.w("AiTipService", "Gemini returned empty text")
-                    "Unable to generate response."
-                } else {
-                    text.trim()
-                }
+        for (attempt in 0..maxRetries) {
+            if (attempt > 0) {
+                val delayMs = (2000L * (1 shl (attempt - 1)))  // 2s, 4s
+                android.util.Log.d("AiTipService", "Rate limited, retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries + 1})")
+                Thread.sleep(delayMs)
             }
-        } catch (e: Exception) {
-            android.util.Log.e("AiTipService", "Gemini API call failed", e)
-            "Unable to generate response."
+
+            val request = Request.Builder()
+                .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${BuildConfig.GEMINI_API_KEY}")
+                .addHeader("Content-Type", "application/json")
+                .post(bodyString.toRequestBody(mediaType))
+                .build()
+
+            try {
+                client.newCall(request).execute().use { response ->
+                    val responseBody = response.body?.string().orEmpty()
+
+                    android.util.Log.d("AiTipService", "Gemini Response Code: ${response.code}")
+                    android.util.Log.d("AiTipService", "Gemini Response Body: $responseBody")
+
+                    if (response.code == 429) {
+                        lastError = "Rate limit reached. Please wait a minute and try again."
+                        return@use  // continue to next retry attempt
+                    }
+
+                    if (!response.isSuccessful) {
+                        lastError = when (response.code) {
+                            400 -> "Invalid request. Please try a different question."
+                            403 -> "API key not authorized. Check your Gemini API key."
+                            404 -> "AI model not found. App update may be needed."
+                            500, 503 -> "Google AI service is temporarily down. Try again later."
+                            else -> "Service error (${response.code}). Please try again."
+                        }
+                        android.util.Log.e("AiTipService", "Gemini error ${response.code}: $responseBody")
+                        return@withContext lastError
+                    }
+
+                    val json = JSONObject(responseBody)
+                    val text = json.optJSONArray("candidates")
+                        ?.optJSONObject(0)
+                        ?.optJSONObject("content")
+                        ?.optJSONArray("parts")
+                        ?.optJSONObject(0)
+                        ?.optString("text")
+
+                    if (text.isNullOrBlank()) {
+                        android.util.Log.w("AiTipService", "Gemini returned empty text")
+                        return@withContext "Unable to generate response."
+                    } else {
+                        return@withContext text.trim()
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("AiTipService", "Gemini API call failed", e)
+                lastError = "Unable to generate response."
+                return@withContext lastError
+            }
         }
+
+        lastError  // all retries exhausted (only for 429)
     }
 
     private fun monthlyJson(monthlyData: List<MonthlyData>): String {

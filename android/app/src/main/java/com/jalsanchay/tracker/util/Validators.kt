@@ -10,12 +10,13 @@ sealed class ValidationResult {
 
 val ValidationResult.isValid get() = this is ValidationResult.Valid
 val ValidationResult.message get() = (this as? ValidationResult.Invalid)?.message
+val ValidationResult.errorMessage get() = (this as? ValidationResult.Invalid)?.message
 
 fun validateRainfallMm(input: String): ValidationResult {
     if (input.isBlank()) return ValidationResult.Invalid("Rainfall amount is required")
     val value = input.toDoubleOrNull() ?: return ValidationResult.Invalid("Please enter a valid number")
     if (value < 0) return ValidationResult.Invalid("Rainfall cannot be negative")
-    if (value > 500) return ValidationResult.Invalid("Value seems too high — maximum is 500mm per day")
+    if (value > 500) return ValidationResult.Invalid("Maximum is 500mm per day")
     return ValidationResult.Valid
 }
 
@@ -23,16 +24,16 @@ fun validateRoofArea(input: String, unit: String): ValidationResult {
     if (input.isBlank()) return ValidationResult.Invalid("Roof area is required")
     val value = input.toDoubleOrNull() ?: return ValidationResult.Invalid("Please enter a valid number")
     if (value <= 0) return ValidationResult.Invalid("Roof area must be greater than zero")
-    if (unit == "sqft" && value > 50000) return ValidationResult.Invalid("Area seems too large — please check")
-    if (unit == "sqm" && value > 4645) return ValidationResult.Invalid("Area seems too large — please check")
+    if (unit == "sqft" && value > 50000) return ValidationResult.Invalid("Area seems too large")
+    if (unit == "sqm" && value > 4645) return ValidationResult.Invalid("Area seems too large")
     return ValidationResult.Valid
 }
 
 fun validateTankCapacity(input: String): ValidationResult {
     if (input.isBlank()) return ValidationResult.Invalid("Tank capacity is required")
     val value = input.toDoubleOrNull() ?: return ValidationResult.Invalid("Please enter a valid number")
-    if (value <= 0) return ValidationResult.Invalid("Tank capacity must be greater than zero")
-    if (value > 1000000) return ValidationResult.Invalid("Capacity seems too large — please check")
+    if (value <= 0) return ValidationResult.Invalid("Must be greater than zero")
+    if (value > 1000000) return ValidationResult.Invalid("Capacity seems too large")
     return ValidationResult.Valid
 }
 

@@ -11,6 +11,20 @@ typealias RainfallEntry = DbRainfallEntry
 typealias MonthlyData = Calculations.MonthlyTotal
 typealias MonthlyReport = Calculations.MonthlyTotal
 
+data class AnalyticsData(
+    val monthlyTotals: List<Calculations.MonthlyTotal> = emptyList(),
+    val bestDay: RainfallEntry? = null,
+    val streakDays: Int = 0,
+    val dryDaysCount: Int = 0,
+    val avgMonthly: Double = 0.0,
+    val seasonBreakdown: Map<String, Double> = mapOf(
+        "SW Monsoon" to 0.0,
+        "NE Monsoon" to 0.0,
+        "Pre-Monsoon" to 0.0,
+        "Dry" to 0.0
+    )
+)
+
 data class ForecastDay(
     val date: String,
     val precipitationSum: Double

@@ -6,17 +6,21 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.glance.appwidget.GlanceAppWidgetManager
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import com.jalsanchay.tracker.ai.AiTipService
 import com.jalsanchay.tracker.data.JalSanchayDatabase
 import com.jalsanchay.tracker.data.RainfallEntry
-import com.jalsanchay.tracker.data.SeedData
 import com.jalsanchay.tracker.data.TrackerRepository
 import com.jalsanchay.tracker.data.UserSetup
 import com.jalsanchay.tracker.model.AsyncState
+import com.jalsanchay.tracker.model.AnalyticsData
 import com.jalsanchay.tracker.model.TrackerUiState
 import com.jalsanchay.tracker.model.UiState
+import com.jalsanchay.tracker.notifications.RainPredictionWorker
 import com.jalsanchay.tracker.util.Calculations
 import com.jalsanchay.tracker.util.ImportResult
+import com.jalsanchay.tracker.util.LocationHelper
 import com.jalsanchay.tracker.util.NetworkMonitor
 import com.jalsanchay.tracker.util.PdfExporter
 import com.jalsanchay.tracker.util.WeatherResult
@@ -37,6 +41,7 @@ import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 class TrackerViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -81,44 +86,64 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val totalLitres: StateFlow<Double> = _totalLitres
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0.0)
 
     val entryCount: StateFlow<Int> = repo.entryCount
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val todaySaved: StateFlow<Double> = _entries.map { entries ->
+    // ── Consolidated stats from entries (single map instead of 8 separate ones) ──
+    private data class DerivedStats(
+        val todaySaved: Double = 0.0,
+        val streak: Int = 0,
+        val bestDay: Double = 0.0,
+        val avgMonthly: Double = 0.0,
+        val dryDays: Int = 0,
+        val monthlyTotals: List<Calculations.MonthlyTotal> = emptyList(),
+        val distinctMonths: Int = 0,
+        val currentMonthProgress: Float = 0f,
+        val lastLoggedDate: String? = null
+    )
+
+    private val derivedStats: StateFlow<DerivedStats> = _entries.map { entries ->
         val today = java.time.LocalDate.now().toString()
-        entries.filter { it.date == today }.sumOf { it.litresCollected }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+        val currentMonthKey = today.substring(0, 7)
+        DerivedStats(
+            todaySaved = entries.filter { it.date == today }.sumOf { it.litresCollected },
+            streak = Calculations.calculateStreak(entries),
+            bestDay = Calculations.getBestDayLitres(entries),
+            avgMonthly = Calculations.getAvgMonthlyLitres(entries),
+            dryDays = Calculations.getDryDaysCount(entries),
+            monthlyTotals = Calculations.getMonthlyTotals(entries),
+            distinctMonths = entries.map { it.date.take(7) }.distinct().size,
+            currentMonthProgress = Calculations.getCurrentMonthProgress(entries, currentMonthKey),
+            lastLoggedDate = entries.maxByOrNull { it.date }?.date
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DerivedStats())
+
+    val todaySaved: StateFlow<Double> = derivedStats.map { it.todaySaved }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
     val impactScore: StateFlow<Double> = _totalLitres.map {
         Calculations.calculateImpactScore(it)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    val streakDays: StateFlow<Int> = _entries.map {
-        Calculations.calculateStreak(it)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    val streakDays: StateFlow<Int> = derivedStats.map { it.streak }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val bestDayLitres: StateFlow<Double> = _entries.map {
-        Calculations.getBestDayLitres(it)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    val bestDayLitres: StateFlow<Double> = derivedStats.map { it.bestDay }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    val avgMonthlyLitres: StateFlow<Double> = _entries.map {
-        Calculations.getAvgMonthlyLitres(it)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    val avgMonthlyLitres: StateFlow<Double> = derivedStats.map { it.avgMonthly }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    val dryDaysCount: StateFlow<Int> = _entries.map {
-        Calculations.getDryDaysCount(it)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    val dryDaysCount: StateFlow<Int> = derivedStats.map { it.dryDays }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val monthlyTotals: StateFlow<List<Calculations.MonthlyTotal>> =
-        _entries.map {
-            Calculations.getMonthlyTotals(it)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val monthlyTotals: StateFlow<List<Calculations.MonthlyTotal>> = derivedStats.map { it.monthlyTotals }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val distinctMonthCount: StateFlow<Int> = _entries.map { entries ->
-        entries.map { it.date.take(7) }.distinct().size
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    val distinctMonthCount: StateFlow<Int> = derivedStats.map { it.distinctMonths }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     val bestMonth: StateFlow<Pair<String, Double>?> =
         monthlyTotals.map { totals ->
@@ -129,14 +154,25 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         totals.sortedBy { it.monthKey }.dropLast(1).lastOrNull()?.totalLitres ?: 0.0
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    val currentMonthProgress: StateFlow<Float> = _entries.map { entries ->
-        val currentMonthKey = java.time.LocalDate.now().toString().substring(0, 7)
-        Calculations.getCurrentMonthProgress(entries, currentMonthKey)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
+    val analyticsData: StateFlow<AnalyticsData> = combine(
+        _entries,
+        derivedStats
+    ) { entries, stats ->
+        AnalyticsData(
+            monthlyTotals = stats.monthlyTotals,
+            bestDay = entries.maxByOrNull { it.litresCollected },
+            streakDays = stats.streak,
+            dryDaysCount = stats.dryDays,
+            avgMonthly = stats.avgMonthly,
+            seasonBreakdown = buildSeasonBreakdown(stats.monthlyTotals)
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AnalyticsData())
 
-    val lastLoggedDate: StateFlow<String?> = _entries.map { entries ->
-        entries.maxByOrNull { it.date }?.date
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val currentMonthProgress: StateFlow<Float> = derivedStats.map { it.currentMonthProgress }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
+
+    val lastLoggedDate: StateFlow<String?> = derivedStats.map { it.lastLoggedDate }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val litresToFill: StateFlow<Double> = combine(todaySaved, _setup) { today, setup ->
         val cap = setup?.tankCapacity ?: 3000.0
@@ -151,6 +187,9 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
 
     private val _weatherForecastJson = MutableStateFlow<String?>(null)
     val weatherForecastJson: StateFlow<String?> = _weatherForecastJson.asStateFlow()
+
+    private val _exportedPdfUri = MutableStateFlow<Uri?>(null)
+    val exportedPdfUri: StateFlow<Uri?> = _exportedPdfUri.asStateFlow()
 
     private val dismissedMilestones = MutableStateFlow<Set<Double>>(emptySet())
 
@@ -215,7 +254,9 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun dismissMilestone() {
-        currentMilestone.value?.let { dismissMilestone(it) }
+        // Dismiss ALL thresholds unconditionally — prevents re-showing lower milestones
+        val allThresholds = setOf(500.0, 1000.0, 5000.0, 10000.0, 25000.0, 50000.0, 100000.0)
+        dismissedMilestones.value = allThresholds
     }
 
     fun saveEntry(date: String, rainfallMm: Double) {
@@ -292,6 +333,29 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun exportPdfReport(context: Context) {
+        viewModelScope.launch {
+            try {
+                val entries = repo.getAllEntriesList()
+                val s = setup.value ?: return@launch
+                val total = entries.sumOf { it.litresCollected }
+                _exportedPdfUri.value = PdfExporter.generateReport(
+                    context = context,
+                    setup = s,
+                    monthly = Calculations.getMonthlyTotals(entries),
+                    totalLitres = total,
+                    impactScore = Calculations.calculateImpactScore(total)
+                )
+            } catch (e: Exception) {
+                showSnackbar("Export failed: ${e.message}")
+            }
+        }
+    }
+
+    fun clearExportedUri() {
+        _exportedPdfUri.value = null
+    }
+
     fun today(): String = java.time.LocalDate.now().toString()
 
     fun setLocationName(value: String) {
@@ -300,6 +364,26 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             val current = setup.value ?: UserSetup()
             repo.saveSetup(current.copy(locationName = value))
             fetchWeather()
+        }
+    }
+
+    fun detectLocation(context: Context) {
+        viewModelScope.launch {
+            val helper = LocationHelper(context, httpClient)
+            if (!helper.hasLocationPermission()) {
+                showSnackbar("Location permission required")
+                return@launch
+            }
+            val city = helper.getCurrentCityName()
+            if (city != null) {
+                val current = setup.value ?: UserSetup()
+                locationName.value = city
+                repo.saveSetup(current.copy(locationName = city))
+                fetchWeather()
+                showSnackbar("Location set to $city")
+            } else {
+                showSnackbar("Could not detect location")
+            }
         }
     }
 
@@ -360,10 +444,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
 
     fun seedDatabase() {
         viewModelScope.launch {
-            repo.seedIfEmpty(
-                entries = SeedData.ENTRIES,
-                setup = SeedData.DEFAULT_SETUP
-            )
+            repo.seedIfEmpty()
         }
     }
 
@@ -381,6 +462,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             when (val result = fetchWeatherForLocation(loc, httpClient)) {
                 is WeatherResult.Success -> {
                     repo.saveWeatherCache(result.resolvedName, result.forecastJson)
+                    scheduleRainPredictionCheck()
                     _weatherCacheAge.value = null
                     _weatherForecastJson.value = result.forecastJson
                     locationName.value = result.resolvedName
@@ -406,14 +488,27 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    private val _exportedDataUri = MutableStateFlow<Uri?>(null)
+    val exportedDataUri: StateFlow<Uri?> = _exportedDataUri.asStateFlow()
+
+    fun clearExportedDataUri() { _exportedDataUri.value = null }
+
     fun exportData(context: Context): Uri? {
         return try {
-            val settings = setup.value ?: return null
-            val uri = exportToJson(context, settings, allEntries.value)
-            showSnackbar("Backup exported")
+            val settings = setup.value ?: run {
+                showSnackbar("No settings found to export")
+                return null
+            }
+            val entries = allEntries.value
+            if (entries.isEmpty()) {
+                showSnackbar("No entries to export")
+                return null
+            }
+            val uri = exportToJson(context, settings, entries)
+            showSnackbar("Backup exported (${entries.size} entries)")
             uri
-        } catch (_: Exception) {
-            showSnackbar("Export failed")
+        } catch (e: Exception) {
+            showSnackbar("Export failed: ${e.message}")
             null
         }
     }
@@ -422,13 +517,14 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             when (val result = importFromJson(context, uri)) {
                 is ImportResult.Success -> {
-                    repo.saveSetup(result.settings)
+                    val settingsWithSetup = result.settings.copy(setupDone = true)
+                    repo.saveSetup(settingsWithSetup)
                     repo.replaceEntries(result.entries)
-                    repo.recalculateAllEntries(result.settings)
+                    repo.recalculateAllEntries(settingsWithSetup)
                     refreshWidgets()
-                    showSnackbar("Backup imported")
+                    showSnackbar("Imported ${result.entries.size} entries")
                 }
-                is ImportResult.Error -> showSnackbar(result.message)
+                is ImportResult.Error -> showSnackbar("Import failed: ${result.message}")
             }
         }
     }
@@ -458,5 +554,31 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             in 10..12 -> "NE Monsoon"
             else -> "Dry Season"
         }
+    }
+
+    private fun scheduleRainPredictionCheck() {
+        val request = OneTimeWorkRequestBuilder<RainPredictionWorker>()
+            .setInitialDelay(2, TimeUnit.MINUTES)
+            .build()
+        WorkManager.getInstance(getApplication()).enqueue(request)
+    }
+
+    private fun buildSeasonBreakdown(monthly: List<Calculations.MonthlyTotal>): Map<String, Double> {
+        return monthly.groupBy {
+            when (it.monthKey.takeLast(2).toInt()) {
+                in 6..9 -> "SW Monsoon"
+                in 10..12 -> "NE Monsoon"
+                in 3..5 -> "Pre-Monsoon"
+                else -> "Dry"
+            }
+        }.mapValues { (_, totals) -> totals.sumOf { it.totalLitres } }
+            .let { totals ->
+                mapOf(
+                    "SW Monsoon" to (totals["SW Monsoon"] ?: 0.0),
+                    "NE Monsoon" to (totals["NE Monsoon"] ?: 0.0),
+                    "Pre-Monsoon" to (totals["Pre-Monsoon"] ?: 0.0),
+                    "Dry" to (totals["Dry"] ?: 0.0)
+                )
+            }
     }
 }
