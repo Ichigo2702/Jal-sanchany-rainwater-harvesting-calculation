@@ -87,6 +87,7 @@ internal fun DashboardScreen(
     val locationName by viewModel.locationName.collectAsStateWithLifecycle()
     val forecastDays by viewModel.forecastDays.collectAsStateWithLifecycle()
     val weatherCacheAge by viewModel.weatherCacheAge.collectAsStateWithLifecycle()
+    val weatherLoading by viewModel.weatherLoading.collectAsStateWithLifecycle()
     var forecastExpanded by remember { mutableStateOf(false) }
     var locationDraft by remember(locationName) { mutableStateOf(locationName) }
     var editingLocation by remember { mutableStateOf(false) }
@@ -208,7 +209,7 @@ internal fun DashboardScreen(
                     Text("Set your location for rain forecast →")
                 }
                 AnimatedVisibility(forecastExpanded) {
-                    LocationInputCard(palette, locationDraft, { locationDraft = it }, uiState.isOnline,
+                    LocationInputCard(palette, locationDraft, { locationDraft = it },
                         onSave = { viewModel.setLocationName(locationDraft) },
                         onDetect = { locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION) }
                     )
@@ -222,6 +223,12 @@ internal fun DashboardScreen(
                         }
                         IconButton(onClick = { viewModel.fetchWeather() }) {
                             Icon(Icons.Default.Refresh, contentDescription = "Refresh weather", tint = palette.primary, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    if (weatherLoading) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Text("Fetching weather...", style = MaterialTheme.typography.labelSmall, color = palette.muted)
                         }
                     }
                     weatherCacheAge?.let {
@@ -238,10 +245,12 @@ internal fun DashboardScreen(
                                 ForecastDayCard(day, palette)
                             }
                         }
+                    } else if (!weatherLoading) {
+                        Text("No forecast data available. Tap refresh to fetch.", style = MaterialTheme.typography.bodySmall, color = palette.muted)
                     }
                 }
                 AnimatedVisibility(editingLocation) {
-                    LocationInputCard(palette, locationDraft, { locationDraft = it }, uiState.isOnline,
+                    LocationInputCard(palette, locationDraft, { locationDraft = it },
                         onSave = { viewModel.setLocationName(locationDraft); editingLocation = false },
                         onDetect = { locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION) }
                     )
@@ -289,7 +298,6 @@ private fun LocationInputCard(
     palette: AppPalette,
     locationDraft: String,
     onDraftChange: (String) -> Unit,
-    isOnline: Boolean,
     onSave: () -> Unit,
     onDetect: () -> Unit
 ) {
@@ -300,6 +308,6 @@ private fun LocationInputCard(
                 Icon(Icons.Default.LocationOn, contentDescription = "Detect location")
             }
         }
-        Button(onSave, enabled = isOnline && locationDraft.isNotBlank()) { Text("Save Location") }
+        Button(onSave, enabled = locationDraft.isNotBlank()) { Text("Save Location") }
     }
 }

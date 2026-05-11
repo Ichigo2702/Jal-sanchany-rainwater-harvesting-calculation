@@ -91,15 +91,32 @@ internal fun SettingsScreen(
 
     // Location state
     val locationName by viewModel.locationName.collectAsStateWithLifecycle()
+    val weatherLoading by viewModel.weatherLoading.collectAsStateWithLifecycle()
     var locationDraft by remember(locationName) { mutableStateOf(locationName) }
     val locationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) viewModel.detectLocation(context)
     }
 
+    // Export data share intent
+    val exportedDataUri by viewModel.exportedDataUri.collectAsStateWithLifecycle()
+    val exportShareLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
+
     LaunchedEffect(saveState) {
         if (saveState == SaveState.SAVED) {
             delay(800)
             saveState = SaveState.IDLE
+        }
+    }
+
+    LaunchedEffect(exportedDataUri) {
+        exportedDataUri?.let { uri ->
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/json"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            exportShareLauncher.launch(Intent.createChooser(shareIntent, "Export Jal-Sanchay backup"))
+            viewModel.clearExportedDataUri()
         }
     }
     Column(Modifier.fillMaxSize()) {
@@ -109,6 +126,12 @@ internal fun SettingsScreen(
             SectionHeader("Location", Icons.Default.LocationOn, palette)
             AppCard(palette) {
                 Text(if (locationName.isBlank()) "Not set" else "📍 $locationName", color = palette.muted)
+                if (weatherLoading) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Text("Fetching weather...", color = palette.muted, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         locationDraft,
@@ -122,9 +145,9 @@ internal fun SettingsScreen(
                 }
                 Button(
                     onClick = { viewModel.setLocationName(locationDraft) },
-                    enabled = locationDraft.isNotBlank(),
+                    enabled = locationDraft.isNotBlank() && !weatherLoading,
                     modifier = Modifier.fillMaxWidth()
-                ) { Text("Save Location") }
+                ) { Text(if (weatherLoading) "Saving..." else "Save Location") }
             }
 
             // ── Setup ──
@@ -177,19 +200,7 @@ internal fun SettingsScreen(
             SectionHeader("Data", Icons.Default.CloudUpload, palette)
             AppCard(palette) {
                 OutlinedButton({
-                    try {
-                        val uri = viewModel.exportData(context)
-                        if (uri != null) {
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "application/json"
-                                putExtra(Intent.EXTRA_STREAM, uri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(Intent.createChooser(shareIntent, "Export Jal-Sanchay backup"))
-                        }
-                    } catch (e: Exception) {
-                        viewModel.showSnackbar("Export failed: ${e.message}")
-                    }
+                    viewModel.exportData(context)
                 }, Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.padding(start = 8.dp))

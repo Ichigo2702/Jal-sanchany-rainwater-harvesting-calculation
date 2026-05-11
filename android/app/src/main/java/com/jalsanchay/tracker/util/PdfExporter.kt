@@ -76,7 +76,7 @@ class PdfExporter(private val context: Context) {
             }
 
             document.finishPage(page)
-            val dir = File(context.getExternalFilesDir("reports"), "")
+            val dir = context.getExternalFilesDir("reports") ?: File(context.cacheDir, "reports")
             dir.mkdirs()
             val output = File(dir, "jal-sanchay-report.pdf")
             FileOutputStream(output).use { document.writeTo(it) }

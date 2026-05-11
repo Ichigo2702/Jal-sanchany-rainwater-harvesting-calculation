@@ -51,7 +51,8 @@ fun exportToJson(
                     .put("createdAt", it.createdAt)
             })
         )
-    val dir = File(context.getExternalFilesDir("backups"), "")
+    // Use external files dir, fall back to cache dir if unavailable
+    val dir = context.getExternalFilesDir("backups") ?: File(context.cacheDir, "backups")
     dir.mkdirs()
     val file = File(dir, "jalsanchay-backup-${LocalDate.now()}.json")
     file.writeText(root.toString(2))

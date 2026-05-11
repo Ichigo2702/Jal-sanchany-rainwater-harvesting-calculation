@@ -34,6 +34,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -63,6 +65,8 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
 
     val locationName = MutableStateFlow("")
     val forecastDays = MutableStateFlow(emptyList<com.jalsanchay.tracker.model.ForecastDay>())
+    private val _weatherLoading = MutableStateFlow(false)
+    val weatherLoading: StateFlow<Boolean> = _weatherLoading.asStateFlow()
     val aiSeasonInsight = MutableStateFlow<UiState<String>>(UiState.Idle)
     val aiTips = MutableStateFlow<UiState<String>>(UiState.Idle)
     val glossaryAnswer = MutableSharedFlow<Pair<String, String>>()
@@ -336,18 +340,24 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     fun exportPdfReport(context: Context) {
         viewModelScope.launch {
             try {
+                val s = _setup.filterNotNull().first()
                 val entries = repo.getAllEntriesList()
-                val s = setup.value ?: return@launch
+                if (entries.isEmpty()) {
+                    showSnackbar("No data to export")
+                    return@launch
+                }
                 val total = entries.sumOf { it.litresCollected }
-                _exportedPdfUri.value = PdfExporter.generateReport(
+                val uri = PdfExporter.generateReport(
                     context = context,
                     setup = s,
                     monthly = Calculations.getMonthlyTotals(entries),
                     totalLitres = total,
                     impactScore = Calculations.calculateImpactScore(total)
                 )
+                _exportedPdfUri.value = uri
+                showSnackbar("PDF report generated")
             } catch (e: Exception) {
-                showSnackbar("Export failed: ${e.message}")
+                showSnackbar("PDF export failed: ${e.message}")
             }
         }
     }
@@ -359,10 +369,18 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     fun today(): String = java.time.LocalDate.now().toString()
 
     fun setLocationName(value: String) {
-        locationName.value = value
+        val trimmed = value.trim()
+        if (trimmed.isBlank()) {
+            showSnackbar("Please enter a city name")
+            return
+        }
+        locationName.value = trimmed
         viewModelScope.launch {
-            val current = setup.value ?: UserSetup()
-            repo.saveSetup(current.copy(locationName = value))
+            val current = _setup.filterNotNull().first()
+            repo.saveSetup(current.copy(locationName = trimmed))
+            // Invalidate weather cache so we force a fresh fetch for the new location
+            try { repo.saveWeatherCache("", "") } catch (_: Exception) {}
+            showSnackbar("Location set to $trimmed")
             fetchWeather()
         }
     }
@@ -376,9 +394,10 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             }
             val city = helper.getCurrentCityName()
             if (city != null) {
-                val current = setup.value ?: UserSetup()
+                val current = _setup.filterNotNull().first()
                 locationName.value = city
                 repo.saveSetup(current.copy(locationName = city))
+                try { repo.saveWeatherCache("", "") } catch (_: Exception) {}
                 fetchWeather()
                 showSnackbar("Location set to $city")
             } else {
@@ -452,26 +471,31 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             val loc = locationName.value.ifBlank { setup.value?.locationName.orEmpty() }
             if (loc.isBlank()) return@launch
+            // Check cache first — only use if same location and not expired
             val cached = repo.getWeatherCache()
-            if (cached != null && cached.locationName.equals(loc, ignoreCase = true)) {
+            if (cached != null && cached.locationName.equals(loc, ignoreCase = true)
+                && cached.forecastJson.isNotBlank()) {
                 _weatherCacheAge.value = cached.fetchedAt
                 _weatherForecastJson.value = cached.forecastJson
                 forecastDays.value = parseForecastDays(cached.forecastJson)
                 return@launch
             }
+            // Fetch fresh weather data from Open-Meteo
+            _weatherLoading.value = true
             when (val result = fetchWeatherForLocation(loc, httpClient)) {
                 is WeatherResult.Success -> {
                     repo.saveWeatherCache(result.resolvedName, result.forecastJson)
                     scheduleRainPredictionCheck()
-                    _weatherCacheAge.value = null
+                    _weatherCacheAge.value = System.currentTimeMillis()
                     _weatherForecastJson.value = result.forecastJson
                     locationName.value = result.resolvedName
                     forecastDays.value = result.forecast.days.map {
                         com.jalsanchay.tracker.model.ForecastDay(it.date, it.precipitationSum)
                     }
                 }
-                is WeatherResult.Error -> showSnackbar(result.message)
+                is WeatherResult.Error -> showSnackbar("Weather: ${result.message}")
             }
+            _weatherLoading.value = false
         }
     }
 
@@ -493,23 +517,21 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
 
     fun clearExportedDataUri() { _exportedDataUri.value = null }
 
-    fun exportData(context: Context): Uri? {
-        return try {
-            val settings = setup.value ?: run {
-                showSnackbar("No settings found to export")
-                return null
+    fun exportData(context: Context) {
+        viewModelScope.launch {
+            try {
+                val settings = _setup.filterNotNull().first()
+                val entries = repo.getAllEntriesList()
+                if (entries.isEmpty()) {
+                    showSnackbar("No entries to export")
+                    return@launch
+                }
+                val uri = exportToJson(context, settings, entries)
+                _exportedDataUri.value = uri
+                showSnackbar("Backup exported (${entries.size} entries)")
+            } catch (e: Exception) {
+                showSnackbar("Export failed: ${e.message}")
             }
-            val entries = allEntries.value
-            if (entries.isEmpty()) {
-                showSnackbar("No entries to export")
-                return null
-            }
-            val uri = exportToJson(context, settings, entries)
-            showSnackbar("Backup exported (${entries.size} entries)")
-            uri
-        } catch (e: Exception) {
-            showSnackbar("Export failed: ${e.message}")
-            null
         }
     }
 
