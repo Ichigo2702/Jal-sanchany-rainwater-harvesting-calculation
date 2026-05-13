@@ -6,3 +6,4 @@ vite-dev*.log
 build/
 android/.gradle/
 android/app/build/
+*.hprof
