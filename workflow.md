@@ -32,9 +32,11 @@ src/
 │   ├── DashboardScreen.tsx  # Main hub, summary stats, AI tips
 │   ├── HistoryScreen.tsx    # List of past rainfall entries
 │   ├── Onboarding.tsx       # Initial setup form
+│   ├── RainfallDetailScreen.tsx # Screen showing details of a specific rainfall entry
 │   ├── RainfallEntryScreen.tsx # Form to log/edit rainfall
 │   ├── ReportsScreen.tsx    # Monthly charts and CSV export
 │   ├── SettingsScreen.tsx   # Edit roof/tank setup, import/export data
+│   ├── SplashScreen.tsx     # Splash screen shown during initial app load
 │   ├── TipsScreen.tsx       # AI season analysis and detailed tips
 │   └── UI.tsx               # Shared UI elements (Dialogs, Toasts)
 ├── services/            # Business logic and external API calls
@@ -85,6 +87,7 @@ android/app/src/main/java/com/jalsanchay/tracker/
 ├── model/
 │   └── Models.kt            # TrackerUiState, AnalyticsData, UiState sealed class, type aliases
 ├── notifications/           # OS Integrations
+│   ├── RainPredictionWorker.kt  # Background WorkManager task for rain prediction alerts
 │   ├── ReminderReceiver.kt      # BroadcastReceiver triggered by alarms
 │   └── ReminderScheduler.kt    # Uses AlarmManager to schedule daily logging reminders
 ├── util/                    # Helper functions
@@ -94,13 +97,13 @@ android/app/src/main/java/com/jalsanchay/tracker/
 │   ├── NetworkMonitor.kt   # ConnectivityManager-based online/offline detection
 │   ├── PdfExporter.kt      # Generates PDF reports using Android's PdfDocument
 │   ├── Validators.kt       # Input validation for roof area, tank capacity, rainfall, dates
-│   └── WeatherService.kt   # Open-Meteo API integration for 7-day forecasts
+│   ├── WeatherFetcher.kt   # Open-Meteo API integration for weather data
+│   └── WeatherSyncWorker.kt # Background worker to sync weather data
 ├── viewmodel/
 │   └── TrackerViewModel.kt     # Connects Repository → DerivedStats → UI via StateFlows
 ├── widget/
-│   └── JalSanchayWidget.kt     # Glance AppWidget for home screen quick stats
-└── workers/
-    └── RainPredictionWorker.kt  # Background WorkManager task for rain prediction alerts
+│   ├── JalSanchayWidget.kt     # Glance AppWidget for home screen quick stats
+│   └── JalSanchayWidgetReceiver.kt # Receiver for the Glance AppWidget
 ```
 
 ### Android Data Flow
