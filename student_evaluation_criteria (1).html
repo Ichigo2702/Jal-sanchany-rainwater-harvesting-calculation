@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Automated Project Evaluation Criteria</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #18212f;
+      --muted: #5c677a;
+      --line: #d8dee8;
+      --panel: #f7f9fc;
+      --accent: #0f766e;
+      --accent-soft: #e6f5f2;
+      --warn: #9a3412;
+      --warn-soft: #fff4e8;
+      --good: #166534;
+      --good-soft: #ecfdf3;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: #ffffff;
+      line-height: 1.55;
+    }
+
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 42px 28px 64px;
+    }
+
+    header {
+      border-bottom: 3px solid var(--accent);
+      padding-bottom: 22px;
+      margin-bottom: 28px;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 34px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 34px 0 12px;
+      font-size: 24px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 8px;
+    }
+
+    h3 {
+      margin: 24px 0 8px;
+      font-size: 18px;
+    }
+
+    p {
+      margin: 8px 0 12px;
+    }
+
+    ul {
+      margin: 8px 0 16px 22px;
+      padding: 0;
+    }
+
+    li {
+      margin: 5px 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 22px;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      vertical-align: top;
+      text-align: left;
+    }
+
+    th {
+      background: var(--panel);
+      font-weight: 700;
+    }
+
+    code {
+      background: #eef2f7;
+      border: 1px solid #dce3ed;
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: Consolas, Monaco, monospace;
+      font-size: 0.94em;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 17px;
+      max-width: 820px;
+    }
+
+    .note {
+      background: var(--accent-soft);
+      border-left: 4px solid var(--accent);
+      padding: 14px 16px;
+      margin: 18px 0;
+    }
+
+    .warning {
+      background: var(--warn-soft);
+      border-left: 4px solid var(--warn);
+      padding: 14px 16px;
+      margin: 18px 0;
+    }
+
+    .success {
+      background: var(--good-soft);
+      border-left: 4px solid var(--good);
+      padding: 14px 16px;
+      margin: 18px 0;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin: 18px 0;
+    }
+
+    .summary-box {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      padding: 14px;
+      border-radius: 6px;
+    }
+
+    .summary-box strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .page-break {
+      break-before: page;
+    }
+
+    @media print {
+      body {
+        font-size: 12px;
+      }
+
+      main {
+        max-width: none;
+        padding: 20mm 16mm;
+      }
+
+      h1 {
+        font-size: 28px;
+      }
+
+      h2 {
+        font-size: 20px;
+      }
+
+      table {
+        font-size: 11px;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+    }
+
+    @media (max-width: 720px) {
+      main {
+        padding: 28px 16px 48px;
+      }
+
+      h1 {
+        font-size: 27px;
+      }
+
+      .summary-grid {
+        grid-template-columns: 1fr;
+      }
+
+      table {
+        font-size: 13px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Automated Project Evaluation Criteria</h1>
+      <p class="subtitle">
+        This document explains how student GitHub projects will be evaluated using an automated, liberal, evidence-based scoring system. The goal is to reward genuine effort, working implementation, clear documentation, and project completeness.
+      </p>
+    </header>
+
+    <section>
+      <h2>Evaluation Overview</h2>
+      <p>
+        Every valid GitHub project starts with a <strong>base score of 60 marks</strong>. Additional marks are awarded based on measurable project signals such as source code, README quality, folder structure, commit history, build readiness, and originality.
+      </p>
+      <div class="note">
+        <strong>Important:</strong> The evaluation is fully automated. Students should make sure their repositories are public, complete, well organized, and easy to understand from the files available on GitHub.
+      </div>
+
+      <div class="summary-grid">
+        <div class="summary-box">
+          <strong>Base Score</strong>
+          Valid, accessible repositories begin from 60 marks.
+        </div>
+        <div class="summary-box">
+          <strong>Final Score</strong>
+          Final marks are calculated using automated checks and quality signals.
+        </div>
+        <div class="summary-box">
+          <strong>Build Check</strong>
+          Projects may receive extra confidence marks if they build or compile successfully.
+        </div>
+        <div class="summary-box">
+          <strong>Feedback</strong>
+          Automated feedback will include strengths and improvement suggestions.
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Final Grade Bands</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Score Range</th>
+            <th>Grade</th>
+            <th>Meaning</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>85-100</td>
+            <td>Excellent</td>
+            <td>Strong, complete, well-structured project with good documentation and implementation quality.</td>
+          </tr>
+          <tr>
+            <td>75-84</td>
+            <td>Very Good</td>
+            <td>Good project with clear effort, useful features, and acceptable structure.</td>
+          </tr>
+          <tr>
+            <td>60-74</td>
+            <td>Good</td>
+            <td>Valid project with meaningful implementation, but some areas need improvement.</td>
+          </tr>
+          <tr>
+            <td>45-59</td>
+            <td>Basic Attempt</td>
+            <td>Some project evidence exists, but the submission is incomplete or weak.</td>
+          </tr>
+          <tr>
+            <td>0-44</td>
+            <td>Incomplete</td>
+            <td>Repository is inaccessible, empty, missing source code, or has very low project evidence.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Score Caps for Serious Issues</h2>
+      <p>
+        Even with a base score system, severe submission issues can limit the maximum possible score.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Issue</th>
+            <th>Maximum Score</th>
+            <th>How to Avoid It</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Repository is inaccessible or invalid</td>
+            <td>20</td>
+            <td>Make the repository public and submit the correct GitHub repository URL.</td>
+          </tr>
+          <tr>
+            <td>Repository is empty</td>
+            <td>25</td>
+            <td>Push all project files, not just a placeholder repository.</td>
+          </tr>
+          <tr>
+            <td>No source code found</td>
+            <td>35</td>
+            <td>Include actual code files such as <code>.js</code>, <code>.py</code>, <code>.java</code>, <code>.html</code>, <code>.dart</code>, or similar.</td>
+          </tr>
+          <tr>
+            <td>Repository cannot be cloned</td>
+            <td>45</td>
+            <td>Ensure the repo is public and does not depend on missing private submodules or inaccessible files.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="page-break">
+      <h2>Detailed Evaluation Parameters</h2>
+
+      <h3>1. Repository Validity</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Checked Parameter</th>
+            <th>What the System Looks For</th>
+            <th>Student Guidance</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Repository accessibility</td>
+            <td>The GitHub repository can be opened and accessed.</td>
+            <td>Keep the repository public until evaluation is complete.</td>
+          </tr>
+          <tr>
+            <td>Meaningful files</td>
+            <td>The repository contains project files, not only images, PDFs, or empty folders.</td>
+            <td>Upload all source code, configuration files, assets, and documentation.</td>
+          </tr>
+          <tr>
+            <td>Source code presence</td>
+            <td>Recognized code files are present.</td>
+            <td>Do not submit only screenshots or presentations. The code must be in GitHub.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>2. Clone and Local Analysis</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Checked Parameter</th>
+            <th>What the System Looks For</th>
+            <th>Student Guidance</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Clone success</td>
+            <td>The repository can be cloned using Git.</td>
+            <td>Check that <code>git clone your-repo-url</code> works on another machine.</td>
+          </tr>
+          <tr>
+            <td>File scan success</td>
+            <td>The evaluator can read folders and files after cloning.</td>
+            <td>Avoid broken links, missing submodules, and private dependencies.</td>
+          </tr>
+          <tr>
+            <td>Reasonable repository size</td>
+            <td>The repo is not empty and not filled mainly with generated folders.</td>
+            <td>Do not upload <code>node_modules</code>, build folders, or unnecessary large generated files.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>3. README and Documentation</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Checked Parameter</th>
+            <th>What the System Looks For</th>
+            <th>Student Guidance</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>README exists</td>
+            <td>A file such as <code>README.md</code> is present.</td>
+            <td>Every project must include a README file.</td>
+          </tr>
+          <tr>
+            <td>Project description</td>
+            <td>The README has enough words to explain the project.</td>
+            <td>Write what problem the project solves and who it is for.</td>
+          </tr>
+          <tr>
+            <td>Setup instructions</td>
+            <td>Words such as install, setup, run, npm, pip, localhost, or similar are found.</td>
+            <td>Add exact commands required to install and run the project.</td>
+          </tr>
+          <tr>
+            <td>Feature or usage details</td>
+            <td>The README explains features, modules, usage, or functionality.</td>
+            <td>List the main features and explain how to use them.</td>
+          </tr>
+          <tr>
+            <td>Screenshots or demo</td>
+            <td>Screenshot images, demo links, deployed links, or video links are included.</td>
+            <td>Add screenshots or a short demo link if possible.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="success">
+        <strong>Recommended README format:</strong>
+        Project title, problem statement, features, tech stack, installation steps, run command, screenshots, demo link, folder structure, and future improvements.
+      </div>
+    </section>
+
+    <section class="page-break">
+      <h3>4. Project Structure</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Checked Parameter</th>
+            <th>What the System Looks For</th>
+            <th>Student Guidance</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Multiple folders</td>
+            <td>The project has a clear folder structure.</td>
+            <td>Use folders such as <code>src</code>, <code>components</code>, <code>pages</code>, <code>backend</code>, <code>assets</code>, or <code>public</code>.</td>
+          </tr>
+          <tr>
+            <td>Configuration files</td>
+            <td>Files such as <code>package.json</code>, <code>requirements.txt</code>, <code>pom.xml</code>, <code>build.gradle</code>, or <code>pubspec.yaml</code> are present.</td>
+            <td>Include the dependency or configuration file required by your technology stack.</td>
+          </tr>
+          <tr>
+            <td>Separation of concerns</td>
+            <td>Code is separated into pages, components, routes, models, services, or similar modules.</td>
+            <td>Avoid putting the entire project into one very large file.</td>
+          </tr>
+          <tr>
+            <td>Organized assets</td>
+            <td>Images, CSS, static files, and media are placed in appropriate folders.</td>
+            <td>Use clean asset folders and meaningful file names.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>5. Code Volume and Effort</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Checked Parameter</th>
+            <th>What the System Looks For</th>
+            <th>Student Guidance</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Source file count</td>
+            <td>Enough meaningful code files are present.</td>
+            <td>Break the project into multiple useful files instead of one dump file.</td>
+          </tr>
+          <tr>
+            <td>Lines of code</td>
+            <td>The project has enough implementation volume for its type.</td>
+            <td>Complete the core features fully. Avoid submitting only starter template code.</td>
+          </tr>
+          <tr>
+            <td>Multiple modules or components</td>
+            <td>The project shows several logical parts.</td>
+            <td>Create reusable functions, components, models, pages, routes, or services.</td>
+          </tr>
+          <tr>
+            <td>Project-specific logic</td>
+            <td>The code appears customized for the submitted project idea.</td>
+            <td>Rename template content and add real functionality related to your problem statement.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Project Type</th>
+            <th>Liberal Minimum Code Volume Signal</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Static HTML/CSS/JavaScript</td>
+            <td>About 200 meaningful lines of code or more</td>
+          </tr>
+          <tr>
+            <td>React/Vite/Next frontend</td>
+            <td>About 300 meaningful lines of code or more</td>
+          </tr>
+          <tr>
+            <td>Backend/API project</td>
+            <td>About 250 meaningful lines of code or more</td>
+          </tr>
+          <tr>
+            <td>Full-stack project</td>
+            <td>About 500 meaningful lines of code or more</td>
+          </tr>
+          <tr>
+            <td>Java/Spring project</td>
+            <td>About 300 meaningful lines of code or more</td>
+          </tr>
+          <tr>
+            <td>Flutter/mobile project</td>
+            <td>About 400 meaningful lines of code or more</td>
+          </tr>
+          <tr>
+            <td>Python/ML/script project</td>
+            <td>About 200 meaningful lines of code or more</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="page-break">
+      <h3>6. Build and Run Confidence</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Checked Parameter</th>
+            <th>What the System Looks For</th>
+            <th>Student Guidance</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Project type detection</td>
+            <td>The evaluator can identify the stack, such as Node, Python, Java, Flutter, or web.</td>
+            <td>Use standard project files and folder names for your framework.</td>
+          </tr>
+          <tr>
+            <td>Dependency file</td>
+            <td>A dependency file is present.</td>
+            <td>Include files like <code>package.json</code>, <code>requirements.txt</code>, <code>pom.xml</code>, or <code>pubspec.yaml</code>.</td>
+          </tr>
+          <tr>
+            <td>Start or build script</td>
+            <td>The project has a recognizable run/build command.</td>
+            <td>For Node projects, include scripts such as <code>start</code>, <code>dev</code>, or <code>build</code> in <code>package.json</code>.</td>
+          </tr>
+          <tr>
+            <td>Build success</td>
+            <td>The project compiles or builds successfully when checked locally.</td>
+            <td>Test your project on a clean setup before submitting.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="warning">
+        <strong>Build failure does not automatically fail the project.</strong> However, it can reduce build confidence marks. A project with clear code, structure, and documentation can still score well even if the build has minor issues.
+      </div>
+
+      <h3>7. Git Activity</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Checked Parameter</th>
+            <th>What the System Looks For</th>
+            <th>Student Guidance</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Commit count</td>
+            <td>More commits show development progress.</td>
+            <td>Commit regularly while building features.</td>
+          </tr>
+          <tr>
+            <td>Incremental development</td>
+            <td>The repository should not look like only one final upload.</td>
+            <td>Use meaningful commit messages such as <code>add login page</code>, <code>fix form validation</code>, or <code>update README</code>.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Commit Count</th>
+            <th>Signal</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1 commit</td>
+            <td>Basic upload evidence</td>
+          </tr>
+          <tr>
+            <td>2-4 commits</td>
+            <td>Some development progress</td>
+          </tr>
+          <tr>
+            <td>5-10 commits</td>
+            <td>Good development progress</td>
+          </tr>
+          <tr>
+            <td>10+ commits</td>
+            <td>Strong development history</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="page-break">
+      <h3>8. Originality and Template Risk</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Checked Parameter</th>
+            <th>What the System Looks For</th>
+            <th>Student Guidance</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Fork status</td>
+            <td>Whether the repository is a fork of another repository.</td>
+            <td>Submit your own repository unless you have clearly built original work on top of a base.</td>
+          </tr>
+          <tr>
+            <td>Custom project naming</td>
+            <td>The project name and README match the submitted idea.</td>
+            <td>Use project-specific names in README, components, pages, and files.</td>
+          </tr>
+          <tr>
+            <td>Default template text</td>
+            <td>The repository should not contain only untouched starter template content.</td>
+            <td>Remove default Vite, React, Next, Flutter, or other starter text and replace it with your project content.</td>
+          </tr>
+          <tr>
+            <td>Custom implementation</td>
+            <td>The project has enough custom code and domain-specific logic.</td>
+            <td>Add real features, forms, pages, validations, storage, APIs, or workflows related to your project.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>What Students Should Submit</h2>
+      <ul>
+        <li>A public GitHub repository URL.</li>
+        <li>Complete source code.</li>
+        <li>A clear <code>README.md</code>.</li>
+        <li>Dependency/config files required to run the project.</li>
+        <li>Screenshots or demo link if available.</li>
+        <li>Meaningful commits showing development progress.</li>
+      </ul>
+
+      <h2>Recommended Repository Checklist</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Checklist Item</th>
+            <th>Status Before Submission</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Repository is public</td>
+            <td>Required</td>
+          </tr>
+          <tr>
+            <td>Correct repository link submitted</td>
+            <td>Required</td>
+          </tr>
+          <tr>
+            <td>Source code is present</td>
+            <td>Required</td>
+          </tr>
+          <tr>
+            <td>README explains the project</td>
+            <td>Strongly recommended</td>
+          </tr>
+          <tr>
+            <td>Setup and run commands are documented</td>
+            <td>Strongly recommended</td>
+          </tr>
+          <tr>
+            <td>Dependency files are included</td>
+            <td>Strongly recommended</td>
+          </tr>
+          <tr>
+            <td>Project builds or runs on a clean machine</td>
+            <td>Strongly recommended</td>
+          </tr>
+          <tr>
+            <td>Default template content has been replaced</td>
+            <td>Required for originality</td>
+          </tr>
+          <tr>
+            <td>Unnecessary generated folders are excluded</td>
+            <td>Recommended</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Common Reasons for Low Scores</h2>
+      <ul>
+        <li>The repository is private or inaccessible.</li>
+        <li>The submitted link is a GitHub profile instead of a repository.</li>
+        <li>The repository is empty or contains only a README.</li>
+        <li>Source code files are missing.</li>
+        <li>The project is only a default starter template.</li>
+        <li>Dependency files are missing.</li>
+        <li>No setup or run instructions are provided.</li>
+        <li>The project cannot be cloned.</li>
+        <li>Most project files are generated or unrelated.</li>
+      </ul>
+
+      <div class="note">
+        <strong>Final advice:</strong> A simple but complete project with clear code, a good README, proper structure, and working setup instructions will score better than a large but confusing or incomplete repository.
+      </div>
+    </section>
+  </main>
+</body>
+</html>
