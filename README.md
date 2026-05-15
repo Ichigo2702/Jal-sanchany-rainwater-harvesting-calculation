@@ -15,6 +15,7 @@ Jal-Sanchay Tracker helps homeowners estimate, log, and optimise their rainwater
 - [Setup & Installation](#-setup--installation)
 - [Usage Guide](#-usage-guide)
 - [Screenshots](#-screenshots)
+- [Future Improvements](#-future-improvements)
 - [Contributing](#-contributing)
 
 ---
@@ -298,6 +299,24 @@ When the Tips screen loads with data, a seasonal context banner appears at the t
 The Glossary section at the bottom of the Tips screen doubles as an AI-powered Q&A interface. Users type any question about rainwater harvesting into the text field and tap **Ask**. The Gemini API returns a personalised answer grounded in the user's own setup data — as shown here, a question *"best way to clean the roof?"* returns a tailored response referencing the user's 800 sq ft concrete roof in India, with step-by-step cleaning instructions. When the AI service is temporarily unavailable, a graceful fallback message is shown ("Google AI service is temporarily down. Try again later.").
 
 ![Tips – AI Glossary Q&A](screenshots/tips%20and%20glossary%203.png)
+
+---
+
+## 🚀 Future Improvements
+
+The following features are planned for upcoming releases:
+
+| Feature | Target Version | Description |
+|---|---|---|
+| **Rain day reminders** | v1.1 | Smart push notifications triggered by weather forecast when rain is expected |
+| **Milestone alerts** | v1.1 | Celebrate water-saving milestones (e.g., 10,000 L saved) with in-app and push notifications |
+| **Multi-tank support** | v1.2 | Allow users to manage multiple storage tanks with individual tracking |
+| **Offline AI tips** | v1.2 | Bundled local tip engine for users without internet access |
+| **Community benchmarks** | v1.3 | Compare your household harvest against anonymised city-level averages |
+| **Water bill calculator** | v1.3 | Input your local water tariff and see real INR savings per month |
+| **Dark / AMOLED theme** | v1.1 | Full dark mode and AMOLED-optimised black background theme |
+| **CSV export** | v1.2 | Export rainfall history as a CSV file for spreadsheet analysis |
+| **Wear OS widget** | v2.0 | Quick glance at tank level from a smartwatch |
 
 ---
 

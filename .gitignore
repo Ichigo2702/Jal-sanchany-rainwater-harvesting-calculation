@@ -1,10 +1,42 @@
+# ────────────────────────────────────────────
+# Node / Web (legacy – no longer in project)
+# ────────────────────────────────────────────
 node_modules/
 dist/
 *.tsbuildinfo
 vite-dev*.log
+
+# ────────────────────────────────────────────
+# Android – Gradle generated output
+# ────────────────────────────────────────────
 .gradle/
 build/
 android/.gradle/
+android/build/
 android/app/build/
-*.hprof
+android/app/release/
+
+# ────────────────────────────────────────────
+# Android – IDE & OS files
+# ────────────────────────────────────────────
+*.iml
+.idea/
+*.idea/
+local.properties
 android/local.properties
+.DS_Store
+Thumbs.db
+
+# ────────────────────────────────────────────
+# Android – Debug / profiling artefacts
+# ────────────────────────────────────────────
+*.hprof
+*.ap_
+*.dex
+
+# ────────────────────────────────────────────
+# Android – Keystore & secrets
+# ────────────────────────────────────────────
+*.jks
+*.keystore
+google-services.json
